@@ -1,0 +1,43 @@
+# Non-essential files (not for deployment)
+/NOUSE
+
+# Development and documentation files
+README.md
+STAGE1_COMPLETION_SUMMARY.md
+*.md
+
+# Scripts and migrations (development only)
+/scripts
+/supabase/migrations
+
+# Development workspace files
+*.code-workspace
+
+# Backup and duplicate files
+*copy.tsx
+*copy.ts
+*copy.js
+
+# Development logs and cache
+*.log
+.next/cache
+tsconfig.tsbuildinfo
+
+# Test files
+test-*.js
+*.test.js
+*.test.ts
+*.test.tsx
+
+# Development environment files
+.env.example
+cookies.txt
+
+# Database files (not needed for deployment)
+*.db
+*.sqlite
+*.sqlite3
+/db
+
+# Development dependencies cache
+node_modules/.cache
