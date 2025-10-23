@@ -1,14 +1,9 @@
-import sqlite3 from 'sqlite3'
-import { open } from 'sqlite'
+import { DatabaseManager } from './database/database-manager'
 
 export async function getQuestions(limit: number = 5) {
-  const db = await open({
-    filename: './db/quiz.db',
-    driver: sqlite3.Database
-  })
-
-  const questions = await db.all('SELECT * FROM questions ORDER BY RANDOM() LIMIT ?', limit)
-  await db.close()
-
+  const dbManager = DatabaseManager.getInstance()
+  await dbManager.initializeIfNeeded()
+  const adapter = dbManager.getAdapter()
+  const questions = await adapter.getRandomQuestions(limit)
   return questions
 }

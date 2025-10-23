@@ -8,8 +8,8 @@
 
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import { randomBytes, createHash } from 'crypto';
-import { DatabaseManager } from '@/lib/database/abstract-adapter';
+import { randomBytes } from 'crypto';
+import { DatabaseManager } from '@/lib/database/database-manager';
 import {
   UserProfile,
   LoginCredentials,
@@ -19,9 +19,6 @@ import {
   PasswordChangeRequest,
   UserRegistration,
   SessionValidationResult,
-  DatabaseError,
-  UserRole,
-  AccountStatus,
   LoginMethod
 } from '@/types/auth';
 
@@ -108,13 +105,13 @@ export class AuthService {
         phone: registration.phone,
         grade_level: registration.gradeLevel,
         subject_specialization: registration.subjectSpecialization,
-        preferences: registration.preferences
+        preferences: registration.preferences as any
       };
 
       const user = await adapter.createUser(userData);
 
       // Update password separately for security
-      await adapter.updatePassword(user.id, registration.password);
+      await adapter.updatePassword(user.id, hashedPassword);
 
       // Create initial session
       const sessionResult = await this.createUserSession(user, {
@@ -324,7 +321,7 @@ export class AuthService {
 
       // Verify JWT token
       try {
-        const decoded = jwt.verify(token, this.config.jwtSecret) as any;
+        jwt.verify(token, this.config.jwtSecret);
         
         // Get user data
         const user = await adapter.getUserById(session.user_id);
@@ -341,8 +338,7 @@ export class AuthService {
         return {
           isValid: true,
           user,
-          session,
-          payload: decoded
+          session
         };
 
       } catch (jwtError) {
@@ -632,8 +628,8 @@ export class AuthService {
       // Update password and clear reset token
       await adapter.updatePassword(user.id, newPassword);
       await adapter.updateUser(user.id, {
-        password_reset_token: null,
-        password_reset_expires: null,
+        password_reset_token: undefined,
+        password_reset_expires: undefined,
         login_attempts: 0 // Reset login attempts
       });
 

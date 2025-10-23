@@ -13,9 +13,7 @@ import {
   LoginSession,
   ParentChildRelationship,
   FaceRecognitionData,
-  DatabaseError,
-  UserRole,
-  AccountStatus
+  DatabaseError
 } from '@/types/auth';
 
 interface SupabaseConfig {
@@ -49,22 +47,11 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
   async connect(): Promise<void> {
     try {
       // Create client for regular operations
-      this.client = createClient(this.config.url, this.config.anonKey, {
-        auth: {
-          autoRefreshToken: true,
-          persistSession: true,
-          detectSessionInUrl: false
-        }
-      });
+      this.client = createClient(this.config.url, this.config.anonKey) as any;
 
       // Create service client for admin operations (if service role key provided)
       if (this.config.serviceRoleKey) {
-        this.serviceClient = createClient(this.config.url, this.config.serviceRoleKey, {
-          auth: {
-            autoRefreshToken: false,
-            persistSession: false
-          }
-        });
+        this.serviceClient = createClient(this.config.url, this.config.serviceRoleKey) as any;
       }
 
       this.isConnected = true;
@@ -163,7 +150,7 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
         keyboard_navigation: false
       },
       privacy: {
-        profile_visibility: 'private',
+        profile_visibility: 'private' as const,
         show_progress: true,
         allow_messages: true
       }
@@ -528,7 +515,7 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
         .eq('is_active', true);
 
       if (error) throw error;
-      return data?.map(item => item.child).filter(Boolean) || [];
+      return data?.map(item => this.mapDatabaseUserToProfile(item.child)).filter(Boolean) || [];
     } catch (error) {
       this.handleError(error, 'get parent children');
     }
@@ -547,7 +534,7 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
         .eq('is_active', true);
 
       if (error) throw error;
-      return data?.map(item => item.parent).filter(Boolean) || [];
+      return data?.map(item => this.mapDatabaseUserToProfile(item.parent)).filter(Boolean) || [];
     } catch (error) {
       this.handleError(error, 'get child parents');
     }
@@ -1091,11 +1078,11 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
     return this.client;
   }
 
-  async commitTransaction(transaction: any): Promise<void> {
+  async commitTransaction(_transaction: any): Promise<void> {
     // No-op for Supabase as transactions are auto-committed
   }
 
-  async rollbackTransaction(transaction: any): Promise<void> {
+  async rollbackTransaction(_transaction: any): Promise<void> {
     // No-op for Supabase as rollback is handled automatically on errors
   }
 
@@ -1282,7 +1269,7 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
               keyboard_navigation: false
             },
             privacy: {
-              profile_visibility: 'private',
+              profile_visibility: 'private' as const,
               show_progress: true,
               allow_messages: true
             }
@@ -1349,7 +1336,7 @@ export class SupabaseAdapter extends AbstractDatabaseAdapter {
                 keyboard_navigation: false
               },
               privacy: {
-                profile_visibility: 'private',
+                profile_visibility: 'private' as const,
                 show_progress: true,
                 allow_messages: true
               }

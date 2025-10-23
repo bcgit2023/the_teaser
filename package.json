@@ -6,8 +6,7 @@
         "dev": "next dev",
         "build": "next build",
         "start": "next start",
-        "lint": "next lint",
-        "setup-db": "node db.js"
+        "lint": "next lint"
     },
     "dependencies": {
         "@radix-ui/react-alert-dialog": "^1.1.15",
@@ -59,8 +58,6 @@
         "recharts": "^2.12.7",
         "sharp": "^0.33.5",
         "sonner": "^2.0.7",
-        "sqlite": "^5.1.1",
-        "sqlite3": "^5.1.7",
         "tailwind-merge": "^2.5.2",
         "tailwindcss-animate": "^1.0.7"
     },

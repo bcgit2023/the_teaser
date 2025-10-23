@@ -151,7 +151,9 @@ export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisual
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
             sourceRef.current = audioContextRef.current!.createMediaStreamSource(stream)
-            sourceRef.current.connect(analyserRef.current)
+            if (analyserRef.current) {
+              sourceRef.current.connect(analyserRef.current)
+            }
           })
           .catch((err) => {
             console.error('Error accessing microphone:', err)

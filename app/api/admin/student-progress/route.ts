@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     const users = usersResult.users.filter(user => user.role !== 'admin')
 
     // For now, return mock data since quiz functionality isn't fully implemented
-    const studentProgress = users.map((user, index) => ({
+    const studentProgress = users.map((user) => ({
       id: user.id,
       username: user.username,
       full_name: user.full_name || user.username,

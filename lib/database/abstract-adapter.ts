@@ -183,19 +183,14 @@ export abstract class AbstractDatabaseAdapter implements DatabaseAdapter {
 // ============================================================================
 
 export interface DatabaseAdapterFactory {
-  createAdapter(type: 'sqlite' | 'supabase', config: any): AbstractDatabaseAdapter;
+  createAdapter(type: 'supabase', config: any): AbstractDatabaseAdapter;
 }
 
 export class DatabaseFactory implements DatabaseAdapterFactory {
-  createAdapter(type: 'sqlite' | 'supabase', config: any): AbstractDatabaseAdapter {
+  createAdapter(type: 'supabase', config: any): AbstractDatabaseAdapter {
     switch (type) {
-      case 'sqlite':
-        // Will be implemented in sqlite-adapter.ts
-        const { SQLiteAdapter } = require('./sqlite-adapter');
-        return new SQLiteAdapter(config);
-      
       case 'supabase':
-        // Will be implemented in supabase-adapter.ts
+        // Import Supabase adapter
         const { SupabaseAdapter } = require('./supabase-adapter');
         return new SupabaseAdapter(config);
       
@@ -225,7 +220,7 @@ export class DatabaseManager {
     return DatabaseManager.instance;
   }
 
-  async initialize(type: 'sqlite' | 'supabase', config: any): Promise<void> {
+  async initialize(type: 'supabase', config: any): Promise<void> {
     if (this.adapter) {
       await this.adapter.disconnect();
     }

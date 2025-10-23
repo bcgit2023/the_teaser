@@ -126,16 +126,19 @@ export class AuthIntegration {
       refreshTokenExpiresIn: this.config.auth.refreshTokenExpiresIn,
       passwordSaltRounds: this.config.auth.passwordSaltRounds,
       security: {
-        password: this.config.security.password,
-        session: this.config.security.session,
-        lockout: this.config.security.lockout,
-        rateLimit: this.config.security.rateLimit,
-        cors: this.config.security.cors,
-        require_email_verification: this.config.security.requireEmailVerification
+        max_login_attempts: this.config.security.lockout.maxFailedAttempts,
+        lockout_duration_minutes: this.config.security.lockout.lockoutDuration,
+        password_reset_token_expiry_hours: 24,
+        email_verification_token_expiry_hours: 24,
+        session_timeout_minutes: this.config.security.session.maxAge / (1000 * 60),
+        require_2fa_for_admin: false,
+        require_email_verification: this.config.security.requireEmailVerification,
+        audit_log_retention_days: 90,
+        suspicious_activity_threshold: 5
       }
     });
     this.rbacService = new RBACService(this.dbManager);
-    this.securityMiddleware = new SecurityMiddleware(this.config.security);
+    this.securityMiddleware = new SecurityMiddleware(this.dbManager, this.config.security);
   }
 
   // ============================================================================
@@ -179,14 +182,28 @@ export class AuthIntegration {
       }
 
       // Register user with enhanced auth service
-      const user = await this.authService.register(userData);
+      const { password, ...userDataWithoutPassword } = userData;
+      const result = await this.authService.register(userDataWithoutPassword, password, {
+        ip_address: userData.profile_data?.ip_address,
+        user_agent: userData.profile_data?.user_agent
+      });
+
+      if (!result.success) {
+        return {
+          success: false,
+          error: result.error,
+          message: result.message
+        };
+      }
+
+      const user = result.user;
       
       // Log successful registration
-      if (this.config.features.enableAuditLogging) {
+      if (this.config.features.enableAuditLogging && user) {
         await this.logSecurityEvent({
           id: this.generateId(),
           user_id: user.id,
-          event_type: 'registration',
+          event_type: 'account_creation',
           event_category: 'authentication',
           description: 'User registered successfully',
           ip_address: userData.profile_data?.ip_address,
@@ -210,7 +227,7 @@ export class AuthIntegration {
         await this.logSecurityEvent({
           id: this.generateId(),
           user_id: '',
-          event_type: 'registration',
+          event_type: 'account_creation',
           event_category: 'authentication',
           description: `Registration failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           ip_address: userData.profile_data?.ip_address,
@@ -282,7 +299,7 @@ export class AuthIntegration {
           await this.logSecurityEvent({
             id: this.generateId(),
             user_id: result.user.id,
-            event_type: 'login',
+            event_type: 'login_success',
             event_category: 'authentication',
             description: 'User logged in successfully',
             ip_address: credentials.ip_address,
@@ -304,7 +321,7 @@ export class AuthIntegration {
           await this.logSecurityEvent({
             id: this.generateId(),
             user_id: '',
-            event_type: 'login',
+            event_type: 'login_failure',
             event_category: 'authentication',
             description: `Login attempt failed: ${identifier ? 'Invalid credentials' : 'No identifier provided'}`,
             ip_address: credentials.ip_address,
@@ -329,7 +346,7 @@ export class AuthIntegration {
         await this.logSecurityEvent({
           id: this.generateId(),
           user_id: '',
-          event_type: 'login',
+          event_type: 'login_failure',
           event_category: 'authentication',
           description: `Login attempt failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
           ip_address: credentials.ip_address,

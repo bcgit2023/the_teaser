@@ -108,7 +108,7 @@ export class JWTManager {
 
   static getTokenExpiry(token: string): number | null {
     try {
-      const decoded = jwt.decode(token) as any;
+      const decoded = (jwt as any).decode(token) as any;
       return decoded?.exp ? decoded.exp * 1000 : null;
     } catch (error) {
       return null;
@@ -136,7 +136,7 @@ export class SessionManager {
 
   static async createSession(
     userId: number,
-    accessToken: string,
+    _accessToken: string,
     refreshToken: string,
     ipAddress?: string,
     userAgent?: string
@@ -146,7 +146,7 @@ export class SessionManager {
     const db = await this.getDb();
 
     await db.createSession({
-      user_id: userId,
+      user_id: userId.toString(),
       token: sessionToken,
       refresh_token: refreshToken,
       ip_address: ipAddress,
@@ -174,7 +174,7 @@ export class SessionManager {
 
       // Get user data
       const user = await db.getUserById(session.user_id);
-      if (!user || !user.is_active) {
+      if (!user || user.account_status !== 'active') {
         return null;
       }
 
@@ -205,8 +205,8 @@ export class SessionManager {
 
       const db = await this.getDb();
       // Get user data
-      const user = await db.getUserById(decoded.userId);
-      if (!user || !user.is_active) {
+      const user = await db.getUserById(decoded.userId.toString());
+      if (!user || user.account_status !== 'active') {
         return null;
       }
 
@@ -222,7 +222,7 @@ export class SessionManager {
       
       // Create new session
       const sessionToken = await this.createSession(
-        user.id,
+        parseInt(user.id),
         tokens.accessToken,
         tokens.refreshToken
       );
@@ -247,7 +247,7 @@ export class SessionManager {
 
   static async invalidateAllUserSessions(userId: number): Promise<void> {
     const db = await this.getDb();
-    await db.invalidateAllUserSessions(userId);
+    await db.invalidateAllUserSessions(userId.toString());
   }
 
   static async cleanupExpiredSessions(): Promise<void> {
@@ -358,11 +358,11 @@ export class AuthMiddleware {
 
       // Permission-based authorization
       if (config.requiredPermissions && config.requiredPermissions.length > 0) {
-        const userPermissions = rbacService.getRolePermissions(context.user.role);
-        context.permissions = userPermissions;
+        const userPermissions = await rbacService.getPermissionsByRole(context.user.role);
+        context.permissions = userPermissions.map(p => p.name);
         
         const hasPermissions = config.requiredPermissions.every(permission =>
-          userPermissions.includes(permission)
+          userPermissions.some(p => p.name === permission)
         );
         
         if (!hasPermissions) {
@@ -391,7 +391,14 @@ export class AuthMiddleware {
     context: AuthContext
   ): AuthenticatedRequest {
     const authRequest = request as AuthenticatedRequest;
-    authRequest.auth = context;
+    if (context.user) {
+      authRequest.auth = {
+        user: context.user,
+        session: context.session,
+        permissions: context.permissions,
+        isAuthenticated: context.isAuthenticated
+      };
+    }
     return authRequest;
   }
 

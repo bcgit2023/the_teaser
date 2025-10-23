@@ -8,7 +8,7 @@ import VoiceVisualizer from '@/components/VoiceVisualizer'
 import ErrorMessage from '@/components/ui/error-message'
 import { playTextToSpeech } from '@/lib/tts-utils'
 import { startSpeechRecognition, stopSpeechRecognition, isSpeechRecognitionSupported } from '@/lib/speech-utils'
-import type { Question } from '@/pages/api/quiz/questions'
+import type { Question } from '@/lib/services/supabase-smart-question-service'
 
 // Extended Question type with uuid field
 interface ExtendedQuestion extends Question {

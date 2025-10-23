@@ -9,11 +9,36 @@
 // Core User Types
 // ============================================================================
 
-export type UserRole = 'admin' | 'student';
+export type UserRole = 'admin' | 'student' | 'parent' | 'teacher';
 
 export type AccountStatus = 'active' | 'inactive' | 'suspended' | 'pending_verification';
 
-export type LoginMethod = 'password' | 'face_recognition' | 'sso';
+export type LoginMethod = 'password' | 'face_recognition' | 'sso' | 'jwt';
+
+// ============================================================================
+// Session and Authentication Data
+// ============================================================================
+
+export interface SessionData {
+  userId: string;
+  username?: string;
+  role: UserRole;
+  email: string;
+  sessionId?: string;
+  iat?: number; // JWT issued at
+  exp?: number; // JWT expires at
+  iss?: string; // JWT issuer
+  aud?: string; // JWT audience
+}
+
+export interface AuthenticatedRequest extends Request {
+  auth?: {
+    user: SessionData;
+    session?: any;
+    permissions?: string[];
+    isAuthenticated: boolean;
+  };
+}
 
 // ============================================================================
 // Database Entity Interfaces (Supabase-compatible)
@@ -89,6 +114,7 @@ export interface AuthCredentials {
 }
 
 export interface FaceRecognitionData {
+  id: string;
   user_id: string;
   face_encoding: string; // Base64 encoded face data
   confidence_threshold: number;
@@ -195,10 +221,32 @@ export interface AccountLockout {
   updated_at: string;
 }
 
+// Security event types for audit logging
+export type SecurityEventType = 
+  | 'login_success'
+  | 'login_failure'
+  | 'logout'
+  | 'password_change'
+  | 'password_reset_request'
+  | 'password_reset_complete'
+  | 'email_verification'
+  | 'account_locked'
+  | 'account_unlocked'
+  | 'profile_update'
+  | 'permission_change'
+  | 'admin_action'
+  | 'suspicious_activity'
+  | 'data_export'
+  | 'account_creation'
+  | 'account_deletion'
+  | '2fa_enabled'
+  | '2fa_disabled'
+  | 'session_expired';
+
 export interface SecurityAuditLog {
   id: string;
   user_id?: string;
-  event_type: 'login' | 'logout' | 'password_change' | 'profile_update' | 'account_creation' | 'account_deletion' | 'permission_change' | 'data_access' | 'admin_action';
+  event_type: SecurityEventType;
   event_category: 'authentication' | 'authorization' | 'data_access' | 'admin_action' | 'security_event';
   description: string;
   ip_address?: string;
@@ -237,26 +285,7 @@ export interface TwoFactorAuth {
   updated_at: string;
 }
 
-// Security event types for audit logging
-export type SecurityEventType = 
-  | 'login_success'
-  | 'login_failure'
-  | 'logout'
-  | 'password_change'
-  | 'password_reset_request'
-  | 'password_reset_complete'
-  | 'email_verification'
-  | 'account_locked'
-  | 'account_unlocked'
-  | 'profile_update'
-  | 'permission_change'
-  | 'admin_action'
-  | 'suspicious_activity'
-  | 'data_export'
-  | 'account_deletion'
-  | '2fa_enabled'
-  | '2fa_disabled'
-  | 'session_expired';
+
 
 export type SecurityRiskLevel = 'low' | 'medium' | 'high' | 'critical';
 

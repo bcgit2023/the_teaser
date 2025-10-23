@@ -1,0 +1,21 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "installCommand": "npm install --production=false",
+  "env": {
+    "DATABASE_TYPE": "supabase"
+  },
+  "functions": {
+    "app/api/**/*.ts": {
+      "runtime": "nodejs18.x"
+    }
+  },
+  "regions": ["iad1"],
+  "build": {
+    "env": {
+      "DATABASE_TYPE": "supabase",
+      "NODE_ENV": "production"
+    }
+  }
+}

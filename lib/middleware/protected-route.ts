@@ -6,10 +6,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { SessionManager } from '@/lib/middleware/auth-middleware';
+import { UserRole } from '@/types/auth';
 
 export interface ProtectedRouteConfig {
   requireAuth?: boolean;
-  allowedRoles?: ('student' | 'teacher' | 'parent')[];
+  allowedRoles?: UserRole[];
   redirectTo?: string;
 }
 

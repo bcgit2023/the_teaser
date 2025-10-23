@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { quizDbService } from '@/lib/services/quiz-db-service'
+import { supabaseQuizService } from '@/lib/services/supabase-quiz-service'
 import { JWTManager } from '@/lib/middleware/auth-middleware'
 
 export async function GET(request: NextRequest) {
@@ -23,9 +23,9 @@ export async function GET(request: NextRequest) {
 
     let questions
     if (type && type !== 'all') {
-      questions = await quizDbService.getQuestionsByType(type)
+      questions = await supabaseQuizService.getQuestionsByType(type)
     } else {
-      questions = await quizDbService.getAllQuestions()
+      questions = await supabaseQuizService.getAllQuestions()
     }
 
     // Implement pagination
@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
     const paginatedQuestions = questions.slice(startIndex, endIndex)
 
     // Get stats
-    const stats = await quizDbService.getQuestionStats()
+    const stats = await supabaseQuizService.getQuestionStats()
 
     return NextResponse.json({
       questions: paginatedQuestions,
@@ -75,7 +75,8 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Question ID is required' }, { status: 400 })
     }
 
-    const success = await quizDbService.updateQuestion(id, updates)
+    await supabaseQuizService.updateQuestion(id, updates)
+    const success = true
     
     if (success) {
       return NextResponse.json({ message: 'Question updated successfully' })
@@ -111,7 +112,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Question ID is required' }, { status: 400 })
     }
 
-    const success = await quizDbService.deleteQuestion(parseInt(id))
+    await supabaseQuizService.deleteQuestion(id)
+    const success = true
     
     if (success) {
       return NextResponse.json({ message: 'Question deleted successfully' })
@@ -150,7 +152,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const questionId = await quizDbService.addQuestion(body)
+    const question = await supabaseQuizService.createQuestion(body)
+    const questionId = question.id
     
     return NextResponse.json({
       message: 'Question created successfully',

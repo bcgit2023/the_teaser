@@ -2,12 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Record, StopCircle } from 'lucide-react'
+import { Circle, StopCircle } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 
 // Import Webcam with dynamic import to avoid SSR issues
 import dynamic from 'next/dynamic'
-const Webcam = dynamic(() => import('react-webcam').then(mod => mod.default), { ssr: false })
+const Webcam = dynamic(() => import('react-webcam') as any, { ssr: false })
 
 interface CircularWebcamRecorderProps {
   width?: number
@@ -202,16 +202,18 @@ export default function CircularWebcamRecorder({
         {/* Webcam component */}
         {webcamLoaded && Webcam && (
           <Webcam
-            audio={false}
-            ref={webcamRef}
-            videoConstraints={{
-              width,
-              height,
-              facingMode: "user"
-            }}
-            onUserMedia={handleUserMedia}
-            className="absolute top-0 left-0 w-full h-full object-cover"
-            screenshotFormat="image/jpeg"
+            {...({
+              audio: false,
+              ref: webcamRef,
+              videoConstraints: {
+                width,
+                height,
+                facingMode: "user"
+              },
+              onUserMedia: handleUserMedia,
+              className: "absolute top-0 left-0 w-full h-full object-cover",
+              screenshotFormat: "image/jpeg"
+            } as any)}
           />
         )}
         
@@ -250,7 +252,7 @@ export default function CircularWebcamRecorder({
             onClick={handleStartRecording}
             disabled={!isCameraReady}
           >
-            <Record className="w-4 h-4 mr-1" />
+            <Circle className="w-4 h-4 mr-1" />
             Record
           </Button>
         )}

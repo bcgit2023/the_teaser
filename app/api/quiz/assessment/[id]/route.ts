@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { DatabaseManager } from '@/lib/database/database-manager'
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -12,13 +12,13 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid quiz result ID' }, { status: 400 })
     }
 
-    const db = await getDb()
+    const dbManager = DatabaseManager.getInstance()
+    await dbManager.initializeIfNeeded()
+    const adapter = dbManager.getAdapter()
     
-    // Get quiz result data
-    const quizResult = await db.get(`
-      SELECT * FROM quiz_results 
-      WHERE id = ?
-    `, [quizResultId])
+    // Get quiz result data using adapter
+    const quizResults = await adapter.getQuizResultsByUserId(quizResultId.toString())
+    const quizResult = quizResults.find(result => result.id === quizResultId.toString())
 
     if (!quizResult) {
       return NextResponse.json({ error: 'Quiz result not found' }, { status: 404 })

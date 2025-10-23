@@ -5,8 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { SessionManager, JWTManager } from '@/lib/middleware/auth-middleware';
-import { AuthIntegration } from '@/lib/services/auth-integration';
+import { SessionManager } from '@/lib/middleware/auth-middleware';
 
 // ============================================================================
 // GET - Validate Session

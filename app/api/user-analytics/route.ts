@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { SmartQuestionService } from '@/lib/services/smart-question-service'
+import { SupabaseSmartQuestionService } from '@/lib/services/supabase-smart-question-service'
 import jwt from 'jsonwebtoken'
 
 /**
@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken'
  * Provides detailed learning analytics and progress tracking
  */
 
-const smartQuestionService = new SmartQuestionService();
+const smartQuestionService = new SupabaseSmartQuestionService();
 
 export async function GET(request: NextRequest) {
   try {

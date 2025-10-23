@@ -79,7 +79,7 @@ export class SupabaseSmartQuestionService {
   /**
    * Get smart question selection for a user
    */
-  async getSmartQuestions(userId: string, requestedCount: number = 5): Promise<Question[]> {
+  async getSmartQuestions(_userId: string, requestedCount: number = 5): Promise<Question[]> {
     try {
       // Get all available questions
       const { data: allQuestions, error: questionsError } = await this.supabase
@@ -193,5 +193,69 @@ export class SupabaseSmartQuestionService {
       console.error('Error in getFallbackQuestions:', error);
       return [];
     }
+  }
+
+  /**
+   * Get user analytics and performance data
+   */
+  async getUserAnalytics(userId: string | number): Promise<any> {
+    try {
+      const userIdStr = userId.toString();
+      
+      // Get quiz results for the user
+      const { data: quizResults, error: quizError } = await this.supabase
+        .from('quiz_results')
+        .select('*')
+        .eq('user_id', userIdStr);
+
+      if (quizError) {
+        console.error('Error fetching quiz results:', quizError);
+        return this.getDefaultAnalytics();
+      }
+
+      const results = quizResults || [];
+      
+      if (results.length === 0) {
+        return this.getDefaultAnalytics();
+      }
+
+      // Calculate basic statistics
+      const totalQuestions = results.reduce((sum, result) => sum + (result.total_questions || 0), 0);
+      const totalCorrect = results.reduce((sum, result) => sum + (result.correct_answers || 0), 0);
+      const totalAttempts = totalQuestions; // Each question is an attempt
+      const accuracy = totalQuestions > 0 ? totalCorrect / totalQuestions : 0;
+
+      // For now, return basic analytics
+      // TODO: Implement more sophisticated analytics when user_question_history table is available
+      return {
+        total_questions_attempted: totalQuestions,
+        total_correct: totalCorrect,
+        total_attempts: totalAttempts,
+        accuracy: accuracy,
+        avg_mastery: accuracy, // Use accuracy as a proxy for mastery
+        avg_response_time: 0, // Not available yet
+        mastered_questions: Math.floor(totalCorrect * 0.8), // Estimate
+        categoryBreakdown: [] // Not available yet
+      };
+    } catch (error) {
+      console.error('Error in getUserAnalytics:', error);
+      return this.getDefaultAnalytics();
+    }
+  }
+
+  /**
+   * Get default analytics when no data is available
+   */
+  private getDefaultAnalytics(): any {
+    return {
+      total_questions_attempted: 0,
+      total_correct: 0,
+      total_attempts: 0,
+      accuracy: 0,
+      avg_mastery: 0,
+      avg_response_time: 0,
+      mastered_questions: 0,
+      categoryBreakdown: []
+    };
   }
 }

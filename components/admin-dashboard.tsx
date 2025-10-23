@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
-import DebugCookies from './debug-cookies'
 import {
   Users,
   UserPlus,
@@ -16,7 +15,6 @@ import {
   TrendingUp,
   TrendingDown,
   Clock,
-  DollarSign,
   Download,
   LogOut,
   BookOpen,
@@ -182,7 +180,6 @@ export default function AdminDashboard() {
 
   // Quiz details modal state
   const [isQuizDetailsOpen, setIsQuizDetailsOpen] = useState(false)
-  const [selectedStudentId, setSelectedStudentId] = useState<number | null>(null)
   const [quizDetailsData, setQuizDetailsData] = useState<QuizDetailsData | null>(null)
   const [quizDetailsLoading, setQuizDetailsLoading] = useState(false)
 
@@ -324,7 +321,6 @@ export default function AdminDashboard() {
 
   // Handle opening quiz details modal
   const handleViewQuizDetails = async (studentId: number) => {
-    setSelectedStudentId(studentId)
     setIsQuizDetailsOpen(true)
     await fetchQuizDetails(studentId)
   }
@@ -388,7 +384,7 @@ export default function AdminDashboard() {
     if (!editingUser) return
 
     try {
-      const updateData = { ...editingUser }
+      const updateData: any = { ...editingUser }
       if (newPassword.trim()) {
         updateData.password = newPassword
       }
@@ -1488,7 +1484,7 @@ export default function AdminDashboard() {
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
-                          {users.slice(0, 5).map((user, index) => (
+                          {users.slice(0, 5).map((user) => (
                             <div key={user.id} className="flex items-center gap-3">
                               <Avatar>
                                 <AvatarFallback className={`${isDarkMode ? 'bg-slate-600 text-slate-100' : 'bg-slate-200 text-slate-700'}`}>{user.username.charAt(0).toUpperCase()}</AvatarFallback>
@@ -1598,7 +1594,7 @@ export default function AdminDashboard() {
                             <h4 className={`font-semibold mb-3 ${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Question Breakdown:</h4>
                             {Array.from({ length: quiz.total_questions }, (_, index) => {
                               const questionNumber = index + 1;
-                              const answer = quiz.answers.find((a, answerIndex) => answerIndex === index);
+                              const answer = quiz.answers.find((_, answerIndex) => answerIndex === index);
                               
                               return (
                                 <div

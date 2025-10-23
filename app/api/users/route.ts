@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDbAdapter } from '@/lib/database/database-manager';
-import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 
 // Verify admin authentication
@@ -105,14 +104,28 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create new user
-    const newUser = await dbAdapter.createUser({
-      username,
+    // Create new user using Supabase Auth
+    const userEmail = email || `${username}@futurelearner.com`;
+    const supabaseAdapter = dbAdapter as any; // Cast to access Supabase-specific methods
+    const { user: authUser, error: authError } = await supabaseAdapter.signUpWithSupabase(
+      userEmail,
       password,
-      role: role as 'student' | 'admin' | 'parent',
-      email: email || undefined,
-      full_name: full_name || undefined
-    });
+      {
+        username,
+        role: role as 'student' | 'admin' | 'parent',
+        full_name: full_name || undefined,
+        email: userEmail
+      }
+    );
+
+    if (authError) {
+      return NextResponse.json(
+        { error: `Failed to create user: ${authError.message}` },
+        { status: 400 }
+      );
+    }
+
+    const newUser = authUser.profile;
 
     return NextResponse.json({
       success: true,

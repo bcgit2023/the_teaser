@@ -449,11 +449,14 @@ export class RateLimiter {
   private cleanup(): void {
     const now = Date.now();
     
-    for (const [key, entry] of this.attempts.entries()) {
+    const keysToDelete: string[] = [];
+    this.attempts.forEach((entry, key) => {
       if (now > entry.resetTime && (!entry.blockUntil || now > entry.blockUntil)) {
-        this.attempts.delete(key);
+        keysToDelete.push(key);
       }
-    }
+    });
+    
+    keysToDelete.forEach(key => this.attempts.delete(key));
   }
 }
 
@@ -507,11 +510,14 @@ export class CSRFProtection {
   private cleanup(): void {
     const now = Date.now();
     
-    for (const [sessionId, entry] of this.tokens.entries()) {
+    const keysToDelete: string[] = [];
+    this.tokens.forEach((entry, sessionId) => {
       if (now > entry.expires) {
-        this.tokens.delete(sessionId);
+        keysToDelete.push(sessionId);
       }
-    }
+    });
+    
+    keysToDelete.forEach(sessionId => this.tokens.delete(sessionId));
   }
 }
 

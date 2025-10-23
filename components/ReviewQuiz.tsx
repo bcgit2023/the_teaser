@@ -16,12 +16,16 @@ const questions = [
   }
 ]
 
-export default function ReviewQuiz({ onComplete }) {
+interface ReviewQuizProps {
+  onComplete: () => void;
+}
+
+export default function ReviewQuiz({ onComplete }: ReviewQuizProps) {
   const [currentQuestion, setCurrentQuestion] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState(null)
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
   const [showResult, setShowResult] = useState(false)
 
-  const handleAnswer = (index) => {
+  const handleAnswer = (index: number) => {
     setSelectedAnswer(index)
     setShowResult(true)
 

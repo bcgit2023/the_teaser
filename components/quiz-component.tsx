@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
@@ -13,27 +13,21 @@ type Question = {
   correct_answer: string;
 }
 
-type QuestionTiming = {
-  questionNumber: number;
-  questionId: number;
-  timeTaken: number;
-  isCorrect: boolean;
-  answer: string;
-}
+
 
 export default function Component() {
   const [questions, setQuestions] = useState<Question[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null)
   const [timeLeft, setTimeLeft] = useState(30)
-  const [score, setScore] = useState(0)
+
   const [quizStarted, setQuizStarted] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+
   const [countdown, setCountdown] = useState(3)
-  const [startTime, setStartTime] = useState<number | null>(null)
+
   const [questionStartTime, setQuestionStartTime] = useState<number | null>(null)
-  const [questionTimings, setQuestionTimings] = useState<QuestionTiming[]>([])
-  const router = useRouter()
+
+
 
   const fetchQuestions = async () => {
     try {
@@ -46,95 +40,9 @@ export default function Component() {
     }
   }
 
-  const submitQuizResults = async () => {
-    if (isSubmitting) return
-    setIsSubmitting(true)
 
-    try {
-      const endTime = Date.now()
-      const totalTimeSpent = startTime ? Math.floor((endTime - startTime) / 1000) : 0
-
-      // Record the last question's timing if it hasn't been recorded yet
-      const lastQuestionRecorded = questionTimings.some(t => t.questionNumber === questions.length)
-      let finalQuestionTimings = [...questionTimings]
-
-      if (!lastQuestionRecorded && selectedAnswer !== null && questionStartTime !== null) {
-        const currentQuestion = questions[currentQuestionIndex]
-        const isCorrect = selectedAnswer === currentQuestion.correct_answer
-        const timeTaken = Math.floor((Date.now() - questionStartTime) / 1000)
-
-        finalQuestionTimings = [...questionTimings, {
-          questionNumber: currentQuestionIndex + 1,
-          questionId: currentQuestion.id,
-          timeTaken,
-          isCorrect,
-          answer: selectedAnswer
-        }]
-      }
-
-      console.log('Submitting quiz results with timings:', finalQuestionTimings)
-      console.log('Total timings count:', finalQuestionTimings.length)
-      console.log('Expected questions:', questions.length)
-
-      const response = await fetch('/api/quiz-results', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          score,
-          correctAnswers: score,
-          totalQuestions: questions.length,
-          answers: finalQuestionTimings.map(timing => ({
-            questionText: questions.find(q => q.id === timing.questionId)?.question_text || '',
-            selectedAnswer: timing.answer,
-            correctAnswer: questions.find(q => q.id === timing.questionId)?.correct_answer || '',
-            isCorrect: timing.isCorrect
-          }))
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to submit quiz results')
-      }
-
-      const data = await response.json()
-      console.log('Quiz results submitted successfully:', data)
-      
-      if (data.quizResultId) {
-        router.push(`/quiz-assessment/${data.quizResultId}`)
-      } else {
-        console.error('No quiz result ID received')
-        throw new Error('No quiz result ID received')
-      }
-    } catch (error) {
-      console.error('Error submitting quiz results:', error)
-      setIsSubmitting(false)
-    }
-  }
 
   const handleNextQuestion = useCallback(() => {
-    if (selectedAnswer !== null && questionStartTime !== null) {
-      const currentQuestion = questions[currentQuestionIndex]
-      const isCorrect = selectedAnswer === currentQuestion.correct_answer
-      const timeTaken = Math.floor((Date.now() - questionStartTime) / 1000)
-
-      const newTiming = {
-        questionNumber: currentQuestionIndex + 1,
-        questionId: currentQuestion.id,
-        timeTaken,
-        isCorrect,
-        answer: selectedAnswer
-      }
-
-      // Update question timings immediately
-      setQuestionTimings(prev => [...prev, newTiming])
-
-      if (isCorrect) {
-        setScore(prevScore => prevScore + 1)
-      }
-    }
 
     const nextQuestionIndex = currentQuestionIndex + 1
     if (nextQuestionIndex < questions.length) {
@@ -155,7 +63,6 @@ export default function Component() {
       return () => clearTimeout(timer)
     } else if (countdown === 0) {
       setQuizStarted(true)
-      setStartTime(Date.now())
       setQuestionStartTime(Date.now())
       fetchQuestions()
     }
@@ -251,7 +158,7 @@ export default function Component() {
           <Button 
             onClick={handleNextQuestion}
             className="bg-blue-600 hover:bg-blue-700 text-white text-xl py-2 px-6"
-            disabled={selectedAnswer === null || isSubmitting}
+            disabled={selectedAnswer === null}
           >
             {currentQuestionIndex === questions.length - 1 ? "Finish" : "Next Question"}
           </Button>

@@ -6,11 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthService } from '@/lib/services/auth-service';
 import { securityService } from '@/lib/services/security-service';
 import { JWTManager, SessionManager } from '@/lib/middleware/auth-middleware';
-import { LoginRequest, LoginResponse, UserRole } from '@/types/auth';
-import { getDbAdapter, getDatabaseType } from '@/lib/db';
+import { AuthCredentials, LoginResponse } from '@/types/auth';
+import { DatabaseManager } from '@/lib/database/database-manager';
 
 // ============================================================================
 // Login Handler
@@ -23,8 +22,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const userAgent = request.headers.get('user-agent') || '';
 
     // Parse request body
-    const body: LoginRequest = await request.json();
-    const { username, password, role, rememberMe = false, email } = body;
+    const body: AuthCredentials = await request.json();
+    const { username, password, role, remember_me = false, email } = body;
 
     // Validate input
     if ((!username && !email) || !password || !role) {
@@ -34,7 +33,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Sanitize input
     const sanitizedUsername = username ? securityService.sanitizeInput(username) : '';
     const sanitizedEmail = email ? securityService.sanitizeInput(email) : '';
-    const sanitizedRole = securityService.sanitizeInput(role) as UserRole;
 
     // Rate limiting check
     const rateLimitResult = securityService.checkLoginAttempt(clientIP);
@@ -50,53 +48,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const databaseType = getDatabaseType();
+    const dbManager = DatabaseManager.getInstance();
+    await dbManager.initializeIfNeeded();
     
     try {
       let authResult: any;
       let user: any;
 
-      if (databaseType === 'supabase') {
-        // Use custom authentication with users_enhanced table
-        const dbAdapter = await getDbAdapter();
-        
-        if (!sanitizedEmail) {
-          return createErrorResponse('Email is required for Supabase authentication', 400);
-        }
+      // Use Supabase authentication only
+      const adapter = dbManager.getAdapter();
+      authResult = await (adapter as any).authenticateWithCustomAuth(
+        sanitizedEmail || sanitizedUsername,
+        password
+      );
 
-        const supabaseResult = await (dbAdapter as any).authenticateWithCustomAuth(sanitizedEmail, password);
-        
-        if (supabaseResult.error || !supabaseResult.user) {
-          return createErrorResponse(
-            supabaseResult.error?.message || 'Invalid credentials',
-            401
-          );
-        }
-
-        user = supabaseResult.user.profile;
-        authResult = {
-          success: true,
-          user: user,
-          session: null // No Supabase session for custom auth
-        };
-      } else {
-        // Use SQLite authentication (legacy)
-        const authService = new AuthService();
-        authResult = await authService.authenticate(
-          sanitizedUsername,
-          password,
-          sanitizedRole
+      if (!authResult.user) {
+        return createErrorResponse(
+          authResult.error?.message || 'Invalid credentials',
+          401
         );
-
-        if (!authResult.success || !authResult.user) {
-          return createErrorResponse(
-            authResult.error || 'Invalid credentials',
-            401
-          );
-        }
-
-        user = authResult.user;
       }
+
+      user = authResult.user.profile;
 
       // Generate JWT tokens
       const sessionData = {
@@ -128,26 +101,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           username: user.username,
           email: user.email,
           role: user.role,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          profilePicture: user.profilePicture,
-          isActive: user.isActive,
-          emailVerified: user.emailVerified,
-          lastLogin: user.lastLogin,
-          createdAt: user.createdAt
+          first_name: user.first_name,
+          last_name: user.last_name,
+          avatar_url: user.avatar_url,
+          account_status: user.account_status,
+          email_verified: user.email_verified,
+          last_login: user.last_login,
+          created_at: user.created_at,
+          updated_at: user.updated_at,
+          login_attempts: user.login_attempts || 0,
+          preferences: user.preferences || {}
         },
-        tokens: {
-          accessToken: tokens.accessToken,
-          refreshToken: tokens.refreshToken,
-          expiresIn: 15 * 60, // 15 minutes
-          tokenType: 'Bearer'
-        },
-        session: {
-          sessionId: sessionToken,
-          expiresAt: new Date(Date.now() + (rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000)
-        },
-        csrfToken,
-        databaseType // Include database type in response for client awareness
+        token: tokens.accessToken,
+        refresh_token: tokens.refreshToken,
+        expires_in: 3600 // 1 hour
       };
 
       // Create response with secure cookies
@@ -159,18 +126,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict' as const,
         path: '/',
-        maxAge: rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60 // 30 days or 7 days
+        maxAge: remember_me ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60 // 30 days or 7 days
       };
 
       response.cookies.set('auth-token', tokens.accessToken, cookieOptions);
       response.cookies.set('refresh-token', tokens.refreshToken, {
         ...cookieOptions,
-        maxAge: rememberMe ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60
+        maxAge: remember_me ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60
       });
       response.cookies.set('session-token', sessionToken, cookieOptions);
 
-      // For Supabase, also set the Supabase session cookie
-      if (databaseType === 'supabase' && authResult.session) {
+      // For Supabase, also set the Supabase session cookie if available
+      if (authResult.session) {
         response.cookies.set('sb-access-token', authResult.session.access_token, cookieOptions);
         response.cookies.set('sb-refresh-token', authResult.session.refresh_token, cookieOptions);
       }
@@ -218,7 +185,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
     // Get session token from cookie
     const sessionToken = request.cookies.get('session-token')?.value;
-    const databaseType = getDatabaseType();
     
     if (sessionToken) {
       // Invalidate session
@@ -228,14 +194,14 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       securityService.removeCSRFToken(sessionToken);
     }
 
-    // For Supabase, also sign out from Supabase
-    if (databaseType === 'supabase') {
-      try {
-        const dbAdapter = await getDbAdapter();
-        await (dbAdapter as any).signOutFromSupabase();
-      } catch (error) {
-        console.error('Supabase sign out error:', error);
-      }
+    // Sign out from Supabase
+    try {
+      const dbManager = DatabaseManager.getInstance();
+      await dbManager.initializeIfNeeded();
+      const dbAdapter = dbManager.getAdapter();
+      await (dbAdapter as any).signOutFromSupabase();
+    } catch (error) {
+      console.error('Supabase sign out error:', error);
     }
 
     // Create response
@@ -263,11 +229,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       maxAge: 0
     });
 
-    // Clear Supabase cookies if using Supabase
-    if (databaseType === 'supabase') {
-      response.cookies.set('sb-access-token', '', cookieOptions);
-      response.cookies.set('sb-refresh-token', '', cookieOptions);
-    }
+    // Clear Supabase cookies
+    response.cookies.set('sb-access-token', '', cookieOptions);
+    response.cookies.set('sb-refresh-token', '', cookieOptions);
 
     // Add security headers
     addSecurityHeaders(response);
@@ -292,7 +256,6 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   try {
     // Get refresh token from cookie
     const refreshToken = request.cookies.get('refresh-token')?.value;
-    const databaseType = getDatabaseType();
     
     if (!refreshToken) {
       return createErrorResponse('Refresh token not found', 401);
@@ -300,33 +263,26 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
 
     let refreshResult: any;
 
-    if (databaseType === 'supabase') {
-      // For Supabase, try to refresh the Supabase session
-      try {
-        const dbAdapter = await getDbAdapter();
-        const supabaseRefresh = await (dbAdapter as any).refreshSupabaseSession();
-        
-        if (supabaseRefresh.error || !supabaseRefresh.session) {
-          return createErrorResponse('Invalid refresh token', 401);
-        }
-
-        // Also refresh our internal session
-        refreshResult = await SessionManager.refreshSession(refreshToken);
-        
-        if (!refreshResult) {
-          return createErrorResponse('Invalid refresh token', 401);
-        }
-      } catch (error) {
-        console.error('Supabase refresh error:', error);
-        return createErrorResponse('Token refresh failed', 401);
+    // Try to refresh the Supabase session
+    try {
+      const dbManager = DatabaseManager.getInstance();
+      await dbManager.initializeIfNeeded();
+      const dbAdapter = dbManager.getAdapter();
+      const supabaseRefresh = await (dbAdapter as any).refreshSupabaseSession();
+      
+      if (supabaseRefresh.error || !supabaseRefresh.session) {
+        return createErrorResponse('Invalid refresh token', 401);
       }
-    } else {
-      // Refresh session for SQLite
+
+      // Also refresh our internal session
       refreshResult = await SessionManager.refreshSession(refreshToken);
       
       if (!refreshResult) {
         return createErrorResponse('Invalid refresh token', 401);
       }
+    } catch (error) {
+      console.error('Supabase refresh error:', error);
+      return createErrorResponse('Token refresh failed', 401);
     }
 
     // Generate new CSRF token

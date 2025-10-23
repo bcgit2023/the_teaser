@@ -1,13 +1,12 @@
 /**
  * Database Manager
  * 
- * Central database connection manager that switches between SQLite and Supabase
- * based on the DATABASE_TYPE environment variable.
+ * Supabase-only database connection manager for production deployment.
+ * SQLite support has been removed to avoid native module compilation issues on Vercel.
  */
 
 import { AbstractDatabaseAdapter } from './abstract-adapter';
 import { SupabaseAdapter } from './supabase-adapter';
-import { SQLiteAdapter } from './sqlite-adapter';
 
 export class DatabaseManager {
   private static instance: DatabaseManager;
@@ -15,7 +14,7 @@ export class DatabaseManager {
   private databaseType: string;
 
   private constructor() {
-    this.databaseType = process.env.DATABASE_TYPE || 'sqlite';
+    this.databaseType = process.env.DATABASE_TYPE || 'supabase';
   }
 
   public static getInstance(): DatabaseManager {
@@ -39,37 +38,25 @@ export class DatabaseManager {
   }
 
   public async initializeAdapter(): Promise<void> {
-    console.log(`Initializing database adapter: ${this.databaseType}`);
+    console.log(`Initializing Supabase database adapter`);
 
-    switch (this.databaseType.toLowerCase()) {
-      case 'supabase':
-        this.adapter = new SupabaseAdapter({
-          url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-          serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
-        });
-        break;
-      
-      case 'sqlite':
-      default:
-        this.adapter = new SQLiteAdapter('./db/user.db');
-        break;
-    }
+    this.adapter = new SupabaseAdapter({
+      url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY
+    });
 
     await this.adapter.connect();
-    console.log(`Database adapter initialized: ${this.databaseType}`);
+    console.log(`Supabase database adapter initialized`);
   }
 
-  public async switchDatabase(newType: 'sqlite' | 'supabase'): Promise<void> {
+  public async reinitialize(): Promise<void> {
     if (this.adapter) {
       await this.adapter.disconnect();
     }
     
-    this.databaseType = newType;
     this.adapter = null;
-    
     await this.initializeAdapter();
-    console.log(`Switched to database: ${newType}`);
   }
 
   public getDatabaseType(): string {

@@ -134,7 +134,7 @@ export default function UserList() {
                   <Label htmlFor="edit-role">Role</Label>
                   <Select
                     value={editingUser.role}
-                    onValueChange={(value: 'student' | 'teacher') => setEditingUser({...editingUser, role: value})}
+                    onValueChange={(value: 'student' | 'admin') => setEditingUser({...editingUser, role: value})}
                   >
                     <SelectTrigger id="edit-role">
                       <SelectValue />

@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { MessageCircle, ChevronDown, ChevronUp, Clock, BarChart2, ArrowLeft } from "lucide-react"
+import { ChevronDown, ChevronUp, Clock, ArrowLeft } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
-import { Input } from "@/components/ui/input"
+
 import classNames from 'classnames'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import ChatContent from "@/app/chat/ChatContent"
@@ -45,11 +45,11 @@ interface QuizAssessmentClientProps {
 export default function QuizAssessmentClient({ id = "latest" }: QuizAssessmentClientProps) {
   const [quizData, setQuizData] = useState<QuizData | null>(null)
   const [selectedQuestion, setSelectedQuestion] = useState<number | null>(null)
-  const [summaryExpanded, setSummaryExpanded] = useState(true)
+
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isPerformanceExpanded, setIsPerformanceExpanded] = useState(false)
-  const [chatMessage, setChatMessage] = useState("")
+
   const router = useRouter()
 
   const formatTime = (totalSeconds: number) => {
@@ -150,7 +150,6 @@ export default function QuizAssessmentClient({ id = "latest" }: QuizAssessmentCl
             )}
             onClick={() => {
               setSelectedQuestion(index + 1)
-              setSummaryExpanded(false)
             }}
           >
             <div className="flex w-full items-center justify-between">

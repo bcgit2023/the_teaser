@@ -18,7 +18,7 @@ export function AnimatedNumber({ value, prefix = '', suffix = '', decimals = 0, 
     threshold: 0.1,
   })
 
-  useEffect(() => {
+  useEffect((): (() => void) | void => {
     if (inView) {
       const duration = 2000 // Animation duration in milliseconds
       const steps = 60 // Number of steps in the animation

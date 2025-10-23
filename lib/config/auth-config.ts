@@ -64,24 +64,25 @@ export const authConfig: AuthIntegrationConfig = {
   }
 };
 
-// Database configuration for different environments
+// Database configuration for Supabase-only deployment
 export const databaseConfig = {
   development: {
-    type: 'sqlite' as const,
-    database: 'test_enhanced.db',
-    synchronize: true,
-    logging: isDevelopment
+    type: 'supabase' as const,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    schema: 'public'
   },
   production: {
-    type: 'sqlite' as const,
-    database: process.env.DATABASE_PATH || 'production.db',
-    synchronize: false,
-    logging: false
+    type: 'supabase' as const,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
+    schema: 'public'
   },
-  // Future Supabase configuration
   supabase: {
-    url: process.env.SUPABASE_URL,
-    anonKey: process.env.SUPABASE_ANON_KEY,
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY,
     schema: 'public'
   }
