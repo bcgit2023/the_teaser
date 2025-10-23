@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'FutureLearner.ai',
+  title: 'FutureLearner.ai Teaser',
   description: 'AI-powered learning platform',
   icons: {
     icon: [
