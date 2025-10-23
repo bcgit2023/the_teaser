@@ -78,6 +78,6 @@
         "tailwindcss": "latest",
         "ts-node": "^10.9.2",
         "typescript": "latest",
-        "uuid": "^11.0.5"
+        "uuid": "^11.1.0"
     }
 }
