@@ -79,5 +79,8 @@
         "tailwindcss": "latest",
         "ts-node": "^10.9.2",
         "typescript": "latest"
+    },
+    "engines": {
+        "node": ">=18.0.0"
     }
 }

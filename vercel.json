@@ -2,12 +2,13 @@
   "framework": "nextjs",
   "buildCommand": "npm run build",
   "installCommand": "npm install",
-  "env": {
-    "DATABASE_TYPE": "supabase"
+  "functions": {
+    "app/**/*.js": {
+      "runtime": "nodejs18.x"
+    }
   },
   "build": {
     "env": {
-      "DATABASE_TYPE": "supabase",
       "NODE_ENV": "production"
     }
   },
