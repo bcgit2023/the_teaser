@@ -64,7 +64,7 @@ async function createSampleQuizData() {
       
       for (let i = 0; i < numQuizzes; i++) {
         const score = Math.floor(Math.random() * 100) + 1; // 1-100
-        const totalQuestions = Math.floor(Math.random() * 5) + 5; // 5-9 questions
+        const totalQuestions = 5; // Fixed to match actual tutorial quiz format (5 questions)
         const correctAnswers = Math.floor((score / 100) * totalQuestions);
         
         // Create quiz result
