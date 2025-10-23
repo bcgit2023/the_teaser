@@ -9,6 +9,9 @@
 .qoder/rules/byterover-rules.md
 .augment/rules/byterover-rules.md
 
+# Non-essential files (not for deployment)
+/NOUSE
+
 # Dependencies
 node_modules/
 npm-debug.log*
