@@ -163,7 +163,7 @@ export async function generateSpeech(
 export async function playTextToSpeech(
   text: string,
   audioElement: HTMLAudioElement,
-  voice: TTSVoice = 'nova',
+  voice: TTSVoice | ElevenLabsVoice = 'nova',
   onStart?: () => void,
   onEnd?: () => void,
   onError?: (error: any) => void,

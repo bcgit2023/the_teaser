@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
-import { ElevenLabsApi, ElevenLabsApiError } from 'elevenlabs'
+import { ElevenLabsClient } from 'elevenlabs'
 
-const elevenlabs = new ElevenLabsApi({
+const elevenlabs = new ElevenLabsClient({
   apiKey: process.env.ELEVENLABS_API_KEY,
 })
 
@@ -125,7 +125,7 @@ export async function POST(req: Request) {
     console.error('ElevenLabs TTS API error:', error)
     
     // Handle ElevenLabs specific errors
-    if (error instanceof ElevenLabsApiError) {
+    if (error.status) {
       if (error.status === 429) {
         return NextResponse.json(
           { error: 'Rate limit exceeded. Please try again later.' },
