@@ -395,7 +395,7 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
   };
 
   
-  // Function to get AI response from the API
+  // Function to get AI response from the API with streaming support
   const getAIResponse = async (messageHistory: Message[]) => {
     try {
       console.log('Current messages:', messageHistory)
@@ -452,22 +452,38 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         throw new Error(`Failed to get AI response: ${response.status} ${response.statusText} - ${errorText}`)
       }
       
-      const data = await response.json()
-      console.log('AI response data:', data)
-      
-      // Validate the response structure
-      if (!data || typeof data !== 'object') {
-        console.error('Invalid response format:', data)
-        throw new Error('Invalid response format from AI API')
-      }
-      
-      const content = data.content || data.response || 'No response content available'
-      console.log('Extracted content:', content)
-      
-      // Return both the content and any highlighted hint
-      return {
-        content: content,
-        highlightedHint: data.highlightedHint
+      // Handle streaming response
+      if (response.body) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let content = ''
+        
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = decoder.decode(value, { stream: true })
+            content += chunk
+            console.log('Streaming chunk:', chunk)
+          }
+        } finally {
+          reader.releaseLock()
+        }
+        
+        console.log('Final streaming content:', content)
+        
+        // Process the complete response to extract any highlighted hints
+        const highlightRegex = /\[HIGHLIGHT\](.*?)\[\/HIGHLIGHT\]/
+        const highlightMatch = content.match(highlightRegex)
+        
+        // Return both the content and any highlighted hint
+        return {
+          content: content.replace(highlightRegex, '$1'),
+          highlightedHint: highlightMatch ? highlightMatch[1] : undefined
+        }
+      } else {
+        throw new Error('No response body received')
       }
     } catch (error) {
       console.error('Error getting AI response:', error)

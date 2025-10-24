@@ -156,8 +156,30 @@ export default function AICourseAssistant({ mode, currentQuestion, quizResults }
 
       if (!response.ok) throw new Error('Failed to get AI response')
       
-      const data = await response.json()
-      return data.content
+      // Handle streaming response
+      if (response.body) {
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let content = ''
+        
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = decoder.decode(value, { stream: true })
+            content += chunk
+          }
+        } finally {
+          reader.releaseLock()
+        }
+        
+        // Process the complete response to extract any highlighted hints
+        const highlightRegex = /\[HIGHLIGHT\](.*?)\[\/HIGHLIGHT\]/
+        return content.replace(highlightRegex, '$1')
+      } else {
+        throw new Error('No response body received')
+      }
     } catch (error) {
       console.error('Error getting AI response:', error)
       return 'I apologize, but I encountered an error. Please try again.'

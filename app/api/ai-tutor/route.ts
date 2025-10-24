@@ -3,6 +3,9 @@ import OpenAI from 'openai'
 import { ChatCompletionMessageParam } from 'openai/resources/chat'
 import { retryOpenAICall } from '@/lib/retry-utils'
 
+// Enable Edge Runtime for better performance and longer timeouts (30s vs 10s)
+export const runtime = 'edge'
+
 // Configure OpenAI client with timeout and retry settings
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -345,29 +348,51 @@ export async function POST(req: Request) {
       ...convertedMessages
     ], null, 2))
     
-    const completion = await retryOpenAICall(
+    // Create streaming completion with retry logic
+    const stream = await retryOpenAICall(
       () => openai.chat.completions.create({
         model: "gpt-4o-mini",
         messages: [...systemMessages, ...convertedMessages],
         temperature: 0.3, // Lower temperature for more focused and consistent responses
         max_tokens: 1000, // Increased but well within the 16,384 limit
         presence_penalty: 0.1, // Slight penalty to prevent repetition
-        frequency_penalty: 0.1 // Slight penalty to encourage diverse vocabulary
+        frequency_penalty: 0.1, // Slight penalty to encourage diverse vocabulary
+        stream: true, // Enable streaming for real-time responses
       }),
       'AI Tutor chat completion'
     )
 
-    // Process the AI's response to extract any highlighted hints
-    const aiResponse = completion.choices[0].message.content || 'I\'m not sure how to respond to that.'
-    
-    // Check if there's a highlighted hint in the response
-    const highlightRegex = /\[HIGHLIGHT\](.*?)\[\/HIGHLIGHT\]/
-    const highlightMatch = aiResponse.match(highlightRegex)
-    
-    // Return the response with any highlighted hint
-    return NextResponse.json({
-      content: aiResponse.replace(highlightRegex, '$1'),
-      highlightedHint: highlightMatch ? highlightMatch[1] : undefined
+    console.log('[AI-TUTOR STREAM] Started streaming response')
+
+    // Create a readable stream to handle the OpenAI stream
+    const encoder = new TextEncoder()
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || ''
+            if (content) {
+              console.log('[AI-TUTOR STREAM] Chunk:', content)
+              controller.enqueue(encoder.encode(content))
+            }
+          }
+          console.log('[AI-TUTOR STREAM] Completed streaming response')
+        } catch (error) {
+          console.error('[AI-TUTOR STREAM] Error:', error)
+          controller.error(error)
+        } finally {
+          controller.close()
+        }
+      },
+    })
+
+    // Return streaming response
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     })
   } catch (error) {
     console.error('AI Tutor API Error:', error)
