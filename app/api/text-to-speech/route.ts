@@ -47,9 +47,24 @@ export async function POST(req: Request) {
     console.log(`[OpenAI TTS] Starting generation for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`)
     console.log(`[OpenAI TTS] Using model: ${model}, voice: ${voice}, speed: ${speed}`)
     console.log(`[OpenAI TTS] API Key configured: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`)
+    console.log(`[OpenAI TTS] API Key prefix: ${process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 7) + '...' : 'None'}`)
     console.log(`[OpenAI TTS] Runtime: Node.js (not Edge)`)
+    console.log(`[OpenAI TTS] Environment: ${process.env.NODE_ENV || 'unknown'}`)
+    console.log(`[OpenAI TTS] Vercel Region: ${process.env.VERCEL_REGION || 'unknown'}`)
+    console.log(`[OpenAI TTS] Request timestamp: ${new Date().toISOString()}`)
+    
+    // Test basic OpenAI connectivity first
+    console.log(`[OpenAI TTS] Testing OpenAI connectivity...`)
+    try {
+      const testModels = await openai.models.list()
+      console.log(`[OpenAI TTS] ✅ OpenAI connection successful, found ${testModels.data.length} models`)
+    } catch (connectError: any) {
+      console.error(`[OpenAI TTS] ❌ OpenAI connection test failed:`, connectError.message)
+      throw new Error(`OpenAI connection failed: ${connectError.message}`)
+    }
     
     // Create TTS request with retry logic
+    console.log(`[OpenAI TTS] Starting TTS generation with retry logic...`)
     const response = await retryOpenAICall(
       () => openai.audio.speech.create({
         model,
