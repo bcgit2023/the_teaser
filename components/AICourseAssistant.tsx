@@ -407,6 +407,8 @@ export default function AICourseAssistant({ mode, currentQuestion, quizResults }
                   () => {
                     setIsListening(false)
                   },
+                  // onRetry callback (optional)
+                  undefined,
                   // options
                   {
                     continuous: false,

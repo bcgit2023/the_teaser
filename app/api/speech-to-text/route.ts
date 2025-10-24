@@ -9,13 +9,6 @@ const openai = new OpenAI({
 const SUPPORTED_FORMATS = ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm']
 const MAX_FILE_SIZE = 25 * 1024 * 1024 // 25MB limit for Whisper API
 
-interface STTRequest {
-  language?: string
-  prompt?: string
-  response_format?: 'json' | 'text' | 'srt' | 'verbose_json' | 'vtt'
-  temperature?: number
-}
-
 export async function POST(req: NextRequest) {
   try {
     // Parse the form data
@@ -51,12 +44,11 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Convert File to Buffer for OpenAI API
+    // Convert File to ArrayBuffer for OpenAI API
     const arrayBuffer = await audioFile.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
 
     // Create a File-like object for OpenAI API
-    const fileForAPI = new File([buffer], audioFile.name, {
+    const fileForAPI = new File([arrayBuffer], audioFile.name, {
       type: audioFile.type,
     })
 
@@ -83,7 +75,8 @@ export async function POST(req: NextRequest) {
       })
     } else {
       // For text, srt, vtt formats, return as plain text
-      return new NextResponse(transcription as string, {
+      const textResult = typeof transcription === 'string' ? transcription : transcription.text
+      return new NextResponse(textResult, {
         headers: {
           'Content-Type': 'text/plain',
         },

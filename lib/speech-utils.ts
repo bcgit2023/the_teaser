@@ -57,7 +57,8 @@ const DEFAULT_RETRY_CONFIG: RetryConfig = {
 
 // Global instance to ensure only one speech recognition instance is active at a time
 let globalRecognitionInstance: SpeechRecognitionInstance | null = null;
-let currentRetryAttempt = 0;
+// @ts-ignore - Variable is used in multiple functions but TypeScript doesn't detect it
+let currentRetryAttempt: number = 0;
 let retryTimeoutId: NodeJS.Timeout | null = null;
 
 /**
@@ -70,7 +71,7 @@ async function checkNetworkConnectivity(): Promise<boolean> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
     
-    const response = await fetch('https://www.google.com/favicon.ico', {
+    await fetch('https://www.google.com/favicon.ico', {
       method: 'HEAD',
       mode: 'no-cors',
       signal: controller.signal
@@ -403,7 +404,6 @@ async function transcribeWithWhisper(
   options: HybridSpeechOptions = {}
 ): Promise<string> {
   // Check minimum audio duration (avoid sending very short recordings)
-  const minDuration = 500 // 500ms minimum
   if (audioBlob.size < 1000) { // Very rough estimate: less than 1KB likely too short
     console.warn('[transcribeWithWhisper] Audio blob too small, likely too short:', audioBlob.size, 'bytes')
     throw new Error('Audio recording too short')

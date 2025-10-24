@@ -489,6 +489,8 @@ export default function ChatContent({ currentQuestion, previousAnswers }: ChatCo
                 () => {
                   setIsListening(false)
                 },
+                // onRetry callback (optional)
+                undefined,
                 // options
                 {
                   continuous: false,

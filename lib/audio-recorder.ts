@@ -64,7 +64,7 @@ export class AudioRecorder {
    */
   static isSupported(): boolean {
     return !!(navigator.mediaDevices && 
-              navigator.mediaDevices.getUserMedia && 
+              typeof navigator.mediaDevices.getUserMedia === 'function' && 
               window.MediaRecorder)
   }
 
@@ -241,7 +241,7 @@ export class AudioRecorder {
  */
 export async function convertAudioBlob(
   blob: Blob, 
-  targetMimeType: string
+  _targetMimeType: string
 ): Promise<Blob> {
   // For now, return the original blob
   // In the future, we could add audio conversion logic here
@@ -253,7 +253,7 @@ export async function convertAudioBlob(
  */
 export async function compressAudioBlob(
   blob: Blob, 
-  quality: number = 0.8
+  _quality: number = 0.8
 ): Promise<Blob> {
   // For now, return the original blob
   // In the future, we could add audio compression logic here

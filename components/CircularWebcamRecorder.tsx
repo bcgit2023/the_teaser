@@ -99,18 +99,18 @@ export default function CircularWebcamRecorder({
     
     // Create MediaRecorder instance with Cloudinary-compatible formats
     // Priority order: mp4 (best compatibility) -> webm (without specific codecs) -> fallback
-    let options = { mimeType: 'video/mp4' }
+    let options: MediaRecorderOptions = { mimeType: 'video/mp4' }
     
     // Try different MIME types in order of Cloudinary compatibility
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+    if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
       // Try webm without specific codecs (Cloudinary supports this)
       options = { mimeType: 'video/webm' }
       
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
         // Try webm with vp8 (more compatible than vp9)
         options = { mimeType: 'video/webm;codecs=vp8' }
         
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
           // Last resort - use browser default
           options = {}
         }

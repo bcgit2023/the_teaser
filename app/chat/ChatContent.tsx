@@ -7,14 +7,12 @@ import { Mic, BookOpen } from 'lucide-react'
 import VoiceVisualizer from '@/components/VoiceVisualizer'
 import AudioErrorBoundary from '@/components/AudioErrorBoundary'
 import { 
-  startSpeechRecognition, 
   stopSpeechRecognition, 
   isSpeechRecognitionSupported,
   startHybridSpeechRecognition,
   stopHybridSpeechRecognition,
   cleanupHybridSpeechRecognition,
-  isHybridSpeechRecognitionSupported,
-  getHybridSpeechRecognitionState
+  isHybridSpeechRecognitionSupported
 } from '@/lib/speech-utils'
 
 // Define types for context-aware functionality

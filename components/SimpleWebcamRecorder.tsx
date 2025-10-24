@@ -104,21 +104,21 @@ export default function SimpleWebcamRecorder({
     
     // Create MediaRecorder instance with Cloudinary-compatible formats
     // Priority order: mp4 (best compatibility) -> webm (without specific codecs) -> fallback
-    let options = { mimeType: 'video/mp4' }
+    let options: MediaRecorderOptions = { mimeType: 'video/mp4' }
     let fileExtension = 'mp4'
     
     // Try different MIME types in order of Cloudinary compatibility
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+    if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
       // Try webm without specific codecs (Cloudinary supports this)
       options = { mimeType: 'video/webm' }
       fileExtension = 'webm'
       
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
         // Try webm with vp8 (more compatible than vp9)
         options = { mimeType: 'video/webm;codecs=vp8' }
         fileExtension = 'webm'
         
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
           // Last resort - use browser default
           options = {}
           fileExtension = 'webm'
@@ -129,7 +129,7 @@ export default function SimpleWebcamRecorder({
       const recorder = new MediaRecorder(streamRef.current, options)
       
       // Store the selected format for later use
-      setRecordingMimeType(options.mimeType)
+      setRecordingMimeType(options.mimeType || 'video/webm')
       setFileExtension(fileExtension)
       
       // Set up event handlers
