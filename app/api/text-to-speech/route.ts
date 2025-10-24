@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { retryOpenAICall } from '@/lib/retry-utils'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60000, // 60 seconds timeout
 })
 
 type TTSVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
@@ -40,13 +42,16 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Create TTS request
-    const response = await openai.audio.speech.create({
-      model,
-      voice,
-      input: text,
-      speed,
-    })
+    // Create TTS request with retry logic
+    const response = await retryOpenAICall(
+      () => openai.audio.speech.create({
+        model,
+        voice,
+        input: text,
+        speed,
+      }),
+      'Text-to-Speech generation'
+    )
 
     // Convert the raw audio data to a buffer
     const buffer = Buffer.from(await response.arrayBuffer())

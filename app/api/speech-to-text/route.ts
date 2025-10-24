@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { NextRequest, NextResponse } from 'next/server';
+import { retryOpenAICall } from '@/lib/retry-utils';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+// Increase function timeout to handle longer OpenAI API calls
+export const maxDuration = 300; // 5 minutes (maximum for Hobby plan)
 
 // Supported audio formats for Whisper API
 const SUPPORTED_FORMATS = ['mp3', 'mp4', 'mpeg', 'mpga', 'm4a', 'wav', 'webm']
@@ -109,17 +108,53 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Call OpenAI Whisper API
-    console.log('[STT] Calling OpenAI Whisper API...')
+    // Enhanced logging for debugging
+    console.log('[STT] Environment info:', {
+      vercelEnv: process.env.VERCEL_ENV,
+      nodeEnv: process.env.NODE_ENV,
+      apiKeyPresent: !!process.env.OPENAI_API_KEY,
+      apiKeyPrefix: process.env.OPENAI_API_KEY?.substring(0, 7) + '...',
+      timestamp: new Date().toISOString()
+    })
+
+    // Call OpenAI Whisper API using native fetch with retry logic for better reliability
+    console.log('[STT] Calling OpenAI Whisper API with native fetch and retry logic...')
     try {
-      const transcription = await openai.audio.transcriptions.create({
-        file: fileForAPI,
-        model: 'whisper-1',
-        language: language || undefined,
-        prompt: prompt || undefined,
-        response_format: responseFormat as any || 'json',
-        temperature: temperature || 0,
-      })
+      const transcription = await retryOpenAICall(async () => {
+        const formData = new FormData()
+        formData.append('file', fileForAPI)
+        formData.append('model', 'whisper-1')
+        if (language) formData.append('language', language)
+        if (prompt) formData.append('prompt', prompt)
+        if (responseFormat) formData.append('response_format', responseFormat)
+        if (temperature !== undefined) formData.append('temperature', temperature.toString())
+
+        const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: formData,
+          // Increase timeout for better reliability
+          signal: AbortSignal.timeout(60000), // 60 second timeout
+        })
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error('[STT] OpenAI API error response:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          })
+          
+          // Create error with proper status for retry logic
+          const error = new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${errorText}`)
+          ;(error as any).status = response.status
+          throw error
+        }
+
+        return await response.json()
+      }, 'Whisper transcription')
 
       const transcriptionText = typeof transcription === 'string' ? transcription : transcription.text || 'No text'
       console.log('[STT] Transcription completed successfully:', transcriptionText.substring(0, 100) + '...')
@@ -141,12 +176,17 @@ export async function POST(req: NextRequest) {
         })
       }
     } catch (openaiError: any) {
-      console.error('[STT] OpenAI API Error:', openaiError)
+      console.error('[STT] OpenAI API Error after retries:', openaiError)
       console.error('[STT] OpenAI Error Details:', {
         message: openaiError.message,
         type: openaiError.type,
         code: openaiError.code,
-        status: openaiError.status
+        status: openaiError.status,
+        cause: openaiError.cause,
+        attempts: openaiError.attempts || 'unknown',
+        lastError: openaiError.lastError?.message || 'unknown',
+        stack: openaiError.stack,
+        fullError: JSON.stringify(openaiError, null, 2)
       })
       
       // Return specific error based on OpenAI error type
@@ -171,9 +211,32 @@ export async function POST(req: NextRequest) {
           { error: 'OpenAI API authentication failed. Please check your API key.' },
           { status: 500 }
         )
+      } else if (openaiError.message?.includes('Connection error') || openaiError.code === 'ECONNRESET' || openaiError.code === 'ENOTFOUND') {
+        return NextResponse.json(
+          { 
+            error: 'Network connection error to OpenAI API after multiple retry attempts. This may be a temporary issue with Vercel or OpenAI servers.',
+            details: {
+              type: openaiError.type,
+              code: openaiError.code,
+              status: openaiError.status,
+              message: openaiError.message,
+              attempts: openaiError.attempts || 'multiple',
+              suggestion: 'The system automatically retried the request multiple times. Please try again in a few moments. If the issue persists, it may be a temporary network connectivity issue.'
+            }
+          },
+          { status: 503 } // Service Unavailable
+        )
       } else {
         return NextResponse.json(
-          { error: `OpenAI Whisper API error: ${openaiError.message || 'Unknown error'}` },
+          { 
+            error: `OpenAI Whisper API error: ${openaiError.message || 'Unknown error'}`,
+            details: {
+              type: openaiError.type,
+              code: openaiError.code,
+              status: openaiError.status,
+              cause: openaiError.cause?.message || openaiError.cause
+            }
+          },
           { status: 500 }
         )
       }

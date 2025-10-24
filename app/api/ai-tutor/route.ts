@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { ChatCompletionMessageParam } from 'openai/resources/chat'
+import { retryOpenAICall } from '@/lib/retry-utils'
 
-// Configure OpenAI client
+// Configure OpenAI client with timeout and retry settings
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 60000, // 60 seconds
+  maxRetries: 3
 })
 
 // Define types for better type safety
@@ -342,14 +345,17 @@ export async function POST(req: Request) {
       ...convertedMessages
     ], null, 2))
     
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [...systemMessages, ...convertedMessages],
-      temperature: 0.3, // Lower temperature for more focused and consistent responses
-      max_tokens: 1000, // Increased but well within the 16,384 limit
-      presence_penalty: 0.1, // Slight penalty to prevent repetition
-      frequency_penalty: 0.1 // Slight penalty to encourage diverse vocabulary
-    })
+    const completion = await retryOpenAICall(
+      () => openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        messages: [...systemMessages, ...convertedMessages],
+        temperature: 0.3, // Lower temperature for more focused and consistent responses
+        max_tokens: 1000, // Increased but well within the 16,384 limit
+        presence_penalty: 0.1, // Slight penalty to prevent repetition
+        frequency_penalty: 0.1 // Slight penalty to encourage diverse vocabulary
+      }),
+      'AI Tutor chat completion'
+    )
 
     // Process the AI's response to extract any highlighted hints
     const aiResponse = completion.choices[0].message.content || 'I\'m not sure how to respond to that.'
