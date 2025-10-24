@@ -67,7 +67,7 @@ export async function generateSpeechWithElevenLabs(
 export async function generateSpeechWithOpenAI(
   text: string,
   voice: TTSVoice = 'nova',
-  model: TTSModel = 'tts-1-hd',
+  model: TTSModel = 'tts-1',
   speed: number = 1.0
 ): Promise<Blob> {
   const response = await fetch('/api/text-to-speech', {
@@ -85,7 +85,7 @@ export async function generateSpeechWithOpenAI(
 }
 
 /**
- * Generate speech from text with automatic fallback (ElevenLabs first, then OpenAI)
+ * Generate speech from text with automatic fallback (OpenAI first, then ElevenLabs)
  * @param text The text to convert to speech
  * @param voice The voice to use (will map to appropriate provider voice)
  * @param model The TTS model to use (optional, uses defaults)
@@ -124,27 +124,27 @@ export async function generateSpeech(
   console.log(`[TTS] Attempting speech generation for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`)
   
   try {
-    // Try ElevenLabs first
-    console.log(`[TTS] Trying ElevenLabs with voice: ${elevenLabsVoice}`)
-    const audioBlob = await generateSpeechWithElevenLabs(text, elevenLabsVoice)
-    console.log(`[TTS] ✅ ElevenLabs succeeded - Generated ${audioBlob.size} bytes`)
+    // Try OpenAI first
+    console.log(`[TTS] Trying OpenAI with voice: ${openAIVoice}`)
+    const audioBlob = await generateSpeechWithOpenAI(text, openAIVoice, model as TTSModel, speed)
+    console.log(`[TTS] ✅ OpenAI succeeded - Generated ${audioBlob.size} bytes`)
     return audioBlob
-  } catch (elevenLabsError) {
-    console.warn(`[TTS] ⚠️ ElevenLabs failed:`, elevenLabsError)
+  } catch (openAIError) {
+    console.warn(`[TTS] ⚠️ OpenAI failed:`, openAIError)
     
     try {
-      // Fallback to OpenAI
-      console.log(`[TTS] Falling back to OpenAI with voice: ${openAIVoice}`)
-      const audioBlob = await generateSpeechWithOpenAI(text, openAIVoice, model as TTSModel, speed)
-      console.log(`[TTS] ✅ OpenAI fallback succeeded - Generated ${audioBlob.size} bytes`)
+      // Fallback to ElevenLabs
+      console.log(`[TTS] Falling back to ElevenLabs with voice: ${elevenLabsVoice}`)
+      const audioBlob = await generateSpeechWithElevenLabs(text, elevenLabsVoice)
+      console.log(`[TTS] ✅ ElevenLabs fallback succeeded - Generated ${audioBlob.size} bytes`)
       return audioBlob
-    } catch (openAIError) {
-      console.error(`[TTS] ❌ Both ElevenLabs and OpenAI failed`)
-      console.error(`[TTS] ElevenLabs error:`, elevenLabsError)
+    } catch (elevenLabsError) {
+      console.error(`[TTS] ❌ Both OpenAI and ElevenLabs failed`)
       console.error(`[TTS] OpenAI error:`, openAIError)
+      console.error(`[TTS] ElevenLabs error:`, elevenLabsError)
       
       // Throw a combined error message
-      throw new Error(`TTS failed: ElevenLabs (${(elevenLabsError as Error).message}) and OpenAI (${(openAIError as Error).message})`)
+      throw new Error(`TTS failed: OpenAI (${(openAIError as Error).message}) and ElevenLabs (${(elevenLabsError as Error).message})`)
     }
   }
 }
