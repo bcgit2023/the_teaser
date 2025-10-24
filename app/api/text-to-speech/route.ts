@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { retryOpenAICall } from '@/lib/retry-utils'
 
-// Enable Edge Runtime for better performance and longer timeouts (30s vs 10s)
-export const runtime = 'edge'
+// Using Node.js runtime for better OpenAI API compatibility
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -47,6 +46,8 @@ export async function POST(req: Request) {
   try {
     console.log(`[OpenAI TTS] Starting generation for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`)
     console.log(`[OpenAI TTS] Using model: ${model}, voice: ${voice}, speed: ${speed}`)
+    console.log(`[OpenAI TTS] API Key configured: ${process.env.OPENAI_API_KEY ? 'Yes' : 'No'}`)
+    console.log(`[OpenAI TTS] Runtime: Node.js (not Edge)`)
     
     // Create TTS request with retry logic
     const response = await retryOpenAICall(
