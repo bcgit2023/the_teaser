@@ -6,6 +6,16 @@ import { toast } from "@/components/ui/use-toast"
 import { Mic, BookOpen } from 'lucide-react'
 import VoiceVisualizer from '@/components/VoiceVisualizer'
 import AudioErrorBoundary from '@/components/AudioErrorBoundary'
+import { 
+  startSpeechRecognition, 
+  stopSpeechRecognition, 
+  isSpeechRecognitionSupported,
+  startHybridSpeechRecognition,
+  stopHybridSpeechRecognition,
+  cleanupHybridSpeechRecognition,
+  isHybridSpeechRecognitionSupported,
+  getHybridSpeechRecognitionState
+} from '@/lib/speech-utils'
 
 // Define types for context-aware functionality
 interface QuestionContext {
@@ -53,6 +63,9 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
   const [isAiSpeaking, setIsAiSpeaking] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isMounted, setIsMounted] = useState(false)
+  const [speechRetryAttempt, setSpeechRetryAttempt] = useState(0)
+  const [speechRetryMax, setSpeechRetryMax] = useState(0)
+  const [speechStatus, setSpeechStatus] = useState<string>('')
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null)
   const [showQuestionReader, setShowQuestionReader] = useState(false)
   const [highlightState, setHighlightState] = useState<HighlightState>({ text: '', progress: 0, isReading: false })
@@ -67,7 +80,6 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
   // Store the question text in a ref to ensure we have access to the latest value
   const questionTextRef = useRef<string>('')
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const recognitionRef = useRef<any>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
 
@@ -112,6 +124,8 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         audioElement.onerror = null;
         audioElement.ontimeupdate = null;
       }
+      // Cleanup hybrid speech recognition
+      cleanupHybridSpeechRecognition();
     };
   }, [])
 
@@ -272,143 +286,23 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
     console.log('Current word index updated:', currentWordIndex);
   }, [currentWordIndex])
 
-  // Initialize speech recognition
+  // Initialize speech recognition support check
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Check for speech recognition support with fallbacks
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-      
-      if (!SpeechRecognition) {
+      // Check if speech recognition is supported
+      if (!isSpeechRecognitionSupported()) {
         console.warn('Speech recognition not supported in this browser')
         toast({
           variant: "destructive",
           title: "Browser Compatibility",
           description: "Speech recognition is not supported in your browser. Please try using Chrome, Edge, or Safari."
         })
-        return
-      }
-
-      try {
-        recognitionRef.current = new SpeechRecognition()
-        recognitionRef.current.continuous = false
-        recognitionRef.current.interimResults = false
-        
-        // Try different language codes as fallbacks
-        const supportedLanguages = ['en-US', 'en-GB', 'en']
-        let languageSet = false
-        
-        for (const lang of supportedLanguages) {
-          try {
-            recognitionRef.current.lang = lang
-            languageSet = true
-            console.log(`Speech recognition language set to: ${lang}`)
-            break
-          } catch (error) {
-            console.warn(`Failed to set language ${lang}:`, error)
-          }
-        }
-        
-        if (!languageSet) {
-          console.warn('Could not set any supported language, using default')
-        }
-
-        recognitionRef.current.onresult = async (event: any) => {
-          const transcript = event.results[0][0].transcript
-          setIsListening(false)
-          
-          console.log('Speech recognition result:', transcript)
-          
-          // Add user message to chat
-          const newMessage: Message = { 
-            role: 'user', 
-            content: transcript,
-            timestamp: getCurrentTime(),
-            id: `user-${Date.now()}`
-          }
-          
-          console.log('New user message:', newMessage)
-          
-          // Update messages state with the new user message
-          setMessages(prevMessages => {
-            console.log('Previous messages:', prevMessages)
-            const updatedMessages = [...prevMessages, newMessage];
-            console.log('Updated messages with user input:', updatedMessages)
-            return updatedMessages;
-          })
-          
-          // Force scroll after adding user message
-          forceScrollToBottom()
-          
-          // Get AI response
-          await handleUserInput(newMessage)
-        }
-
-        recognitionRef.current.onerror = (event: any) => {
-          console.error('Speech recognition error:', event.error)
-          setIsListening(false)
-          
-          let errorMessage = 'Speech recognition failed. Please try again.'
-          
-          switch (event.error) {
-            case 'language-not-supported':
-              errorMessage = 'The selected language is not supported. Trying with default settings.'
-              // Try to reinitialize with default language
-              setTimeout(() => {
-                if (recognitionRef.current) {
-                  try {
-                    recognitionRef.current.lang = 'en'
-                    console.log('Fallback to default language')
-                  } catch (error) {
-                    console.warn('Failed to set fallback language:', error)
-                  }
-                }
-              }, 100)
-              break
-            case 'not-allowed':
-              errorMessage = 'Microphone access denied. Please allow microphone access and try again.'
-              break
-            case 'network':
-              errorMessage = 'Network error occurred. Please check your connection and try again.'
-              break
-            case 'no-speech':
-              errorMessage = 'No speech detected. Please try speaking again.'
-              break
-            case 'aborted':
-              errorMessage = 'Speech recognition was stopped.'
-              break
-            default:
-              errorMessage = `Speech recognition error: ${event.error}. Please try again.`
-          }
-          
-          toast({
-            description: errorMessage,
-            variant: "destructive"
-          })
-        }
-
-        recognitionRef.current.onend = () => {
-          setIsListening(false)
-        }
-      } catch (error) {
-        console.error('Failed to initialize speech recognition:', error)
-        toast({
-          variant: "destructive",
-          title: "Speech Recognition Error",
-          description: "Failed to initialize speech recognition. Please refresh the page and try again."
-        })
       }
     }
 
     return () => {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort()
-        } catch (error) {
-          console.warn('Error aborting speech recognition:', error)
-        } finally {
-          recognitionRef.current = null
-        }
-      }
+      // Cleanup any active speech recognition
+      stopSpeechRecognition()
     }
   }, [])
   
@@ -504,11 +398,10 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
 
   
   // Function to get AI response from the API
-  const getAIResponse = async (messageHistory: Message[]): Promise<string | { content: string; highlightedHint?: string }> => {
+  const getAIResponse = async (messageHistory: Message[]) => {
     try {
-      console.log('Getting AI response for message history:', messageHistory)
+      console.log('Current messages:', messageHistory)
       
-      // Prepare the request body with backward compatibility
       const requestBody: any = {
         mode: 'reactive',
         messages: messageHistory.map(msg => ({
@@ -517,22 +410,13 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         }))
       }
 
-      // Only add question context if feature flag is enabled and context exists
+      // Add question context if available and context awareness is enabled
       if (enableContextAwareness && questionContext) {
-        // Ensure we have the question text and options
-        const questionText = questionContext.text || questionContext.question_text || ''
-        const questionOptions = questionContext.options || []
+        const questionText = questionContext.text || questionContext.question_text
+        const questionOptions = questionContext.options
         
-        // Detailed debug logging
-        console.log('======= QUESTION CONTEXT DEBUG =======')
-        console.log('enableContextAwareness:', enableContextAwareness)
-        console.log('questionContext raw:', JSON.stringify(questionContext, null, 2))
-        console.log('questionText:', questionText)
-        console.log('questionOptions:', JSON.stringify(questionOptions, null, 2))
-        
-        // Only proceed if we have valid question data
-        if (questionText && questionOptions.length > 0) {
-          console.log('Sending question context to AI:', JSON.stringify({
+        if (questionText && questionOptions && questionOptions.length > 0) {
+          console.log('Adding question context:', JSON.stringify({
             text: questionText,
             options: questionOptions
           }, null, 2))
@@ -560,22 +444,43 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         body: JSON.stringify(requestBody),
       })
 
+      console.log('AI Tutor API Response Status:', response.status)
+      console.log('AI Tutor API Response Headers:', Object.fromEntries(response.headers))
+
       if (!response.ok) {
+        const errorText = await response.text()
         console.error('API response not OK:', response.status, response.statusText)
-        throw new Error('Failed to get AI response')
+        console.error('Error response body:', errorText)
+        throw new Error(`Failed to get AI response: ${response.status} ${response.statusText} - ${errorText}`)
       }
       
       const data = await response.json()
       console.log('AI response data:', data)
       
+      // Validate the response structure
+      if (!data || typeof data !== 'object') {
+        console.error('Invalid response format:', data)
+        throw new Error('Invalid response format from AI API')
+      }
+      
+      const content = data.content || data.response || 'No response content available'
+      console.log('Extracted content:', content)
+      
       // Return both the content and any highlighted hint
       return {
-        content: data.content || data.response || 'No response content available',
+        content: content,
         highlightedHint: data.highlightedHint
       }
     } catch (error) {
       console.error('Error getting AI response:', error)
-      return 'I apologize, but I encountered an error. Please try again.'
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+      
+      // Return more specific error information
+      if (error instanceof Error) {
+        return `I apologize, but I encountered an error: ${error.message}. Please try again.`
+      } else {
+        return 'I apologize, but I encountered an unknown error. Please try again.'
+      }
     }
   }
   
@@ -600,6 +505,8 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
       // Create a new audio element each time to avoid state issues
       const audio = new Audio();
       
+      console.log('Generating speech for text:', text.substring(0, 100) + '...')
+      
       // Fetch the audio data
       const audioResponse = await fetch('/api/text-to-speech', {
         method: 'POST',
@@ -607,9 +514,23 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         body: JSON.stringify({ text }),
       })
 
-      if (!audioResponse.ok) throw new Error('Failed to generate audio')
+      console.log('Text-to-Speech API Response Status:', audioResponse.status)
+      console.log('Text-to-Speech API Response Headers:', Object.fromEntries(audioResponse.headers))
+
+      if (!audioResponse.ok) {
+        const errorText = await audioResponse.text()
+        console.error('Text-to-Speech API Error:', audioResponse.status, audioResponse.statusText)
+        console.error('Error response body:', errorText)
+        throw new Error(`Failed to generate audio: ${audioResponse.status} ${audioResponse.statusText} - ${errorText}`)
+      }
 
       const audioBlob = await audioResponse.blob()
+      console.log('Received audio blob, size:', audioBlob.size, 'bytes')
+      
+      if (audioBlob.size === 0) {
+        throw new Error('Received empty audio response')
+      }
+      
       const audioUrl = URL.createObjectURL(audioBlob)
       
       // Set up the new audio element
@@ -628,6 +549,7 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
       };
       
       const handleEnded = () => {
+        console.log('Audio playback ended');
         setIsAiSpeaking(false);
         setHasAudioFinished(true);
         URL.revokeObjectURL(audioUrl);
@@ -643,7 +565,8 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         audio.ontimeupdate = null;
       };
       
-      const handleError = () => {
+      const handleError = (event: any) => {
+        console.error('Audio playback error:', event);
         setIsAiSpeaking(false);
         URL.revokeObjectURL(audioUrl);
         if (isQuestionReading) {
@@ -746,12 +669,26 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
       
     } catch (error) {
       console.error('Error generating speech:', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
       setIsAiSpeaking(false);
       if (isQuestionReading) {
         setHighlightState(prev => ({ ...prev, isReading: false }));
       }
+      
+      // Provide more specific error messages
+      let errorMessage = 'An error occurred generating speech. Please try again.';
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to generate audio')) {
+          errorMessage = `Speech generation failed: ${error.message}`;
+        } else if (error.message.includes('auto-play')) {
+          errorMessage = 'Audio auto-play is blocked. Please click to enable audio.';
+        } else {
+          errorMessage = `Speech error: ${error.message}`;
+        }
+      }
+      
       toast({
-        description: 'An error occurred generating speech. Please try again.',
+        description: errorMessage,
         variant: "destructive"
       });
     }
@@ -987,37 +924,143 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
           </div>
           <div className="w-full space-y-2">
             
-            {/* Main Speech Recognition Button */}
+            {/* Main Speech Recognition Button - Hybrid Approach */}
             <Button
-              onClick={() => {
+              onClick={async () => {
                 // Enable audio on first interaction if needed
                 if (!hasUserInteracted) {
                   setHasUserInteracted(true);
                 }
                 
                 if (isListening) {
-                  recognitionRef.current?.stop()
+                  // Stop current speech recognition
+                  stopHybridSpeechRecognition()
                   setIsListening(false)
+                  setSpeechStatus('')
                 } else if (!isAiSpeaking && !isLoading) {
-                  try {
-                    recognitionRef.current?.start()
-                    setIsListening(true)
-                  } catch (error) {
-                    console.error('Error starting speech recognition:', error)
+                  // Check if hybrid speech recognition is supported
+                  if (!isHybridSpeechRecognitionSupported()) {
                     toast({
                       variant: "destructive",
-                      title: "Error",
-                      description: "Failed to start speech recognition. Please try again.",
+                      title: "Speech Recognition Unavailable",
+                      description: "Speech recognition is not supported in your browser or device."
+                    })
+                    return
+                  }
+
+                  // Reset state
+                  setSpeechRetryAttempt(0)
+                  setSpeechRetryMax(0)
+                  setSpeechStatus('Initializing...')
+
+                  // Start hybrid speech recognition
+                  try {
+                    const started = await startHybridSpeechRecognition(
+                      {
+                        // onStart callback
+                        onStart: () => {
+                          setIsListening(true)
+                          setSpeechStatus('Listening...')
+                          console.log('Hybrid speech recognition started')
+                        },
+                        
+                        // onStop callback
+                        onStop: () => {
+                          setIsListening(false)
+                          setSpeechStatus('')
+                          console.log('Hybrid speech recognition stopped')
+                        },
+                        
+                        // onResult callback
+                        onResult: async (transcript: string, confidence?: number) => {
+                          setIsListening(false)
+                          setSpeechStatus('')
+                          console.log('Speech recognition result:', transcript, 'confidence:', confidence)
+                          
+                          // Add user message to chat
+                          const newMessage: Message = { 
+                            role: 'user', 
+                            content: transcript,
+                            timestamp: getCurrentTime(),
+                            id: `user-${Date.now()}`
+                          }
+                          
+                          console.log('New user message:', newMessage)
+                          
+                          // Update messages state with the new user message
+                          setMessages(prevMessages => {
+                            console.log('Previous messages:', prevMessages)
+                            const updatedMessages = [...prevMessages, newMessage];
+                            console.log('Updated messages with user input:', updatedMessages)
+                            return updatedMessages;
+                          })
+                          
+                          // Force scroll after adding user message
+                          forceScrollToBottom()
+                          
+                          // Get AI response
+                          await handleUserInput(newMessage)
+                        },
+                        
+                        // onError callback
+                        onError: (error: string, message: string) => {
+                          console.error('Hybrid speech recognition error:', error, message)
+                          setIsListening(false)
+                          setSpeechStatus('')
+                          
+                          toast({
+                            variant: "destructive",
+                            title: "Speech Recognition Error",
+                            description: message,
+                            duration: 8000
+                          })
+                        },
+                        
+                        // onStatusUpdate callback
+                        onStatusUpdate: (status: string) => {
+                          setSpeechStatus(status)
+                          console.log('Speech status:', status)
+                        }
+                      },
+                      {
+                        // Hybrid speech options
+                        maxDuration: 60000, // 60 seconds
+                        useWebSpeechFallback: true,
+                        whisperModel: 'whisper-1',
+                        language: 'en'
+                      }
+                    )
+
+                    if (!started) {
+                      setSpeechStatus('')
+                      toast({
+                        variant: "destructive",
+                        title: "Speech Recognition Failed",
+                        description: "Unable to start speech recognition. Please try again.",
+                        duration: 5000
+                      })
+                    }
+                  } catch (error) {
+                    console.error('Failed to start hybrid speech recognition:', error)
+                    setIsListening(false)
+                    setSpeechStatus('')
+                    toast({
+                      variant: "destructive",
+                      title: "Speech Recognition Failed",
+                      description: "Unable to start speech recognition. Please try again.",
+                      duration: 5000
                     })
                   }
                 }
               }}
-              disabled={isAiSpeaking || isLoading}
+              disabled={isAiSpeaking || isLoading || !isHybridSpeechRecognitionSupported()}
               className={`w-full ${
                 isListening 
                   ? 'bg-red-500 hover:bg-red-600' 
                   : 'bg-[#0066CC] hover:bg-[#0077EE]'
-              } text-white rounded-full`}
+              } text-white rounded-full ${
+                !isHybridSpeechRecognitionSupported() ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               {isListening ? (
                 <>
@@ -1027,7 +1070,12 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
               ) : (
                 <>
                   <Mic className="w-4 h-4 mr-2" />
-                  {isLoading ? 'Processing...' : isAiSpeaking ? 'AI Speaking...' : 'Start Speaking'}
+                  {isLoading ? 'Processing...' : 
+                   isAiSpeaking ? 'AI Speaking...' : 
+                   speechStatus ? speechStatus :
+                   speechRetryAttempt > 0 ? `Retrying... (${speechRetryAttempt}/${speechRetryMax})` :
+                   !isHybridSpeechRecognitionSupported() ? 'Speech Recognition Unavailable' :
+                   'Start Speaking'}
                 </>
               )}
             </Button>

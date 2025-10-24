@@ -2,28 +2,47 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { MonitorPlay, StopCircle } from 'lucide-react'
+import { Monitor, Square, Upload } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
+import { useCloudinaryUpload } from '@/hooks/useCloudinaryUpload'
+import { ScreenRecorderProps } from '@/types/cloudinary'
 import ParentalConsentModal from './ParentalConsentModal'
-
-interface ScreenRecorderProps {
-  onRecordingStart?: () => void
-  onRecordingStop?: (recordingUrl: string) => void
-}
 
 export default function ScreenRecorder({
   onRecordingStart,
   onRecordingStop,
+  onRecordingComplete,
+  onError,
+  userId,
+  sessionId,
+  maxDuration = 600, // 10 minutes default for screen recording
+  autoUpload = true,
+  uploadToCloudinary = true,
+  className = '',
 }: ScreenRecorderProps) {
   const { toast } = useToast()
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([])
   const [recordingDuration, setRecordingDuration] = useState(0)
-  const timerRef = useRef<NodeJS.Timeout | null>(null)
   const [showConsentModal, setShowConsentModal] = useState(false)
   const [hasParentalConsent, setHasParentalConsent] = useState(false)
+  const [recordingMimeType] = useState<string>('video/webm')
+  const [fileExtension] = useState<string>('webm')
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cloudinary upload hook
+  const {
+    isUploading,
+    uploadProgress,
+    uploadResponse,
+    error: uploadError,
+    uploadToCloudinary: uploadToCloudinaryFn,
+    clearError
+  } = useCloudinaryUpload()
 
   // Clean up on unmount
   useEffect(() => {
@@ -149,9 +168,16 @@ export default function ScreenRecorder({
       setIsRecording(true)
       setRecordingDuration(0)
       
-      // Start timer
+      // Start duration timer
       timerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1)
+        setRecordingDuration(prev => {
+          const newDuration = prev + 1
+          // Auto-stop recording if max duration reached
+          if (newDuration >= maxDuration) {
+            handleStopRecording()
+          }
+          return newDuration
+        })
       }, 1000)
 
       // Call onRecordingStart callback
@@ -244,66 +270,133 @@ export default function ScreenRecorder({
     }
   }, [isRecording, hasParentalConsent, handleStopRecording, startActualRecording])
 
-  // Save recording when chunks are updated
+  // Process recording when chunks are available
   useEffect(() => {
     if (recordedChunks.length > 0 && !isRecording) {
-      console.log('Saving recording with', recordedChunks.length, 'chunks');
-      saveRecording()
+      processRecording()
+      // Clear chunks after processing to prevent duplicate uploads
+      setRecordedChunks([])
     }
   }, [recordedChunks, isRecording])
 
-  // Save recording function
-  const saveRecording = async () => {
+  const processRecording = async () => {
     try {
-      console.log('Creating blob from', recordedChunks.length, 'chunks');
-      const blob = new Blob(recordedChunks, { 
-        type: recordedChunks[0]?.type || 'video/webm' 
-      })
-      console.log('Blob created:', blob.size, 'bytes, type:', blob.type);
+      const blob = new Blob(recordedChunks, { type: recordingMimeType })
+      setRecordedBlob(blob)
       
+      if (uploadToCloudinary && autoUpload) {
+        await handleCloudinaryUpload(blob)
+      } else {
+        // Fallback to local upload
+        await handleLocalUpload(blob)
+      }
+    } catch (error) {
+      console.error('Error processing recording:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      toast({
+        title: 'Error',
+        description: `Failed to process recording: ${errorMessage}`,
+        variant: 'destructive',
+      })
+      
+      onError?.(errorMessage)
+    } finally {
+      // Reset state
+      setRecordingDuration(0)
+    }
+  }
+
+  const handleCloudinaryUpload = async (blob: Blob) => {
+    try {
+      clearError()
+      
+      const result = await uploadToCloudinaryFn(blob, {
+        type: 'screen',
+        userId,
+        sessionId
+      })
+      
+      if (result) {
+        toast({
+          title: 'Screen recording uploaded successfully!',
+          description: `Duration: ${formatDuration(recordingDuration)}`,
+        })
+        
+        onRecordingComplete?.({
+          ...result,
+          blob,
+          url: result.data?.url || result.data?.originalUrl || '',
+          cloudinaryData: result.data,
+          duration: recordingDuration,
+          type: 'screen'
+        })
+
+        // Also call legacy callback for backward compatibility
+        onRecordingStop?.(result.data?.url || result.data?.originalUrl || '')
+      }
+    } catch (error) {
+      console.error('Cloudinary upload failed:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed'
+      
+      toast({
+        title: 'Upload Failed',
+        description: `Failed to upload to cloud: ${errorMessage}`,
+        variant: 'destructive',
+      })
+      
+      // Fallback to local upload
+      if (autoUpload) {
+        await handleLocalUpload(blob)
+      }
+    }
+  }
+
+  const handleLocalUpload = async (blob: Blob) => {
+    try {
       const formData = new FormData()
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `screen-recording-${timestamp}.webm`
-      formData.append('video', blob, filename)
+      // Use 'file' to match the API route expectation
+      formData.append('file', blob, `screen-recording-${Date.now()}.${fileExtension}`)
       formData.append('duration', recordingDuration.toString())
       formData.append('type', 'screen')
-
-      console.log('Uploading recording...');
+      
       const response = await fetch('/api/recordings/screen', {
         method: 'POST',
         body: formData,
       })
+      
+      if (response.ok) {
+        const result = await response.json()
+        const objectUrl = URL.createObjectURL(blob)
+        
+        toast({
+          title: 'Screen recording saved!',
+          description: `Duration: ${formatDuration(recordingDuration)}`,
+        })
+        
+        onRecordingComplete?.({
+          success: true,
+          blob,
+          url: objectUrl,
+          localData: result,
+          duration: recordingDuration,
+          type: 'screen'
+        })
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(`Upload failed: ${response.status} ${errorText}`)
+        // Also call legacy callback for backward compatibility
+        onRecordingStop?.(objectUrl)
+      } else {
+        throw new Error('Failed to save recording')
       }
-
-      const result = await response.json()
-      console.log('Upload successful:', result);
-      
-      // Create object URL for immediate playback
-      const recordingUrl = URL.createObjectURL(blob)
-      
-      // Call onRecordingStop callback
-      onRecordingStop?.(recordingUrl)
-      
-      toast({
-        title: "Recording Saved",
-        description: `Screen recording saved successfully (${Math.round(blob.size / 1024 / 1024 * 100) / 100} MB)`,
-      })
-
-      // Reset chunks
-      setRecordedChunks([])
-      setRecordingDuration(0)
-      
     } catch (error) {
-      console.error('Error saving recording:', error)
-      toast({
-        title: "Save Failed",
-        description: error instanceof Error ? error.message : "Failed to save recording",
-        variant: "destructive"
-      })
+      console.error('Error saving recording locally:', error)
+      throw error
+    }
+  }
+
+  const handleManualUpload = async () => {
+    if (recordedBlob) {
+      await handleCloudinaryUpload(recordedBlob)
     }
   }
 
@@ -315,26 +408,64 @@ export default function ScreenRecorder({
   }
 
   return (
-    <>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={handleRecordClick}
-        disabled={false}
-        className="flex items-center gap-1 !bg-white !border-gray-200 !text-gray-700 hover:!bg-gray-50 hover:!text-gray-900"
-      >
-        {isRecording ? (
-          <>
-            <StopCircle className="w-3 h-3" />
-            <span className="text-xs">Stop ({formatDuration(recordingDuration)})</span>
-          </>
-        ) : (
-          <>
-            <MonitorPlay className="w-3 h-3" />
-            <span className="text-xs">Record Screen</span>
-          </>
+    <div className={`flex items-center gap-2 ${className}`}>
+      <div className="relative">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRecordClick}
+          disabled={isUploading}
+          className="flex items-center gap-1 !bg-white !border-gray-200 !text-gray-700 hover:!bg-gray-50 hover:!text-gray-900"
+        >
+          {isRecording ? (
+            <>
+              <Square className="w-3 h-3" />
+              <span className="text-xs">Stop ({formatDuration(recordingDuration)})</span>
+            </>
+          ) : (
+            <>
+              <Monitor className="w-3 h-3" />
+              <span className="text-xs">Record Screen</span>
+            </>
+          )}
+        </Button>
+
+        {/* Upload progress indicator */}
+        {isUploading && (
+          <div className="absolute -top-8 left-0 bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold flex items-center gap-1 whitespace-nowrap">
+            <Upload className="w-3 h-3 animate-spin" />
+            {uploadProgress}%
+          </div>
         )}
-      </Button>
+
+        {/* Upload success indicator */}
+        {uploadResponse && !isUploading && (
+          <div className="absolute -top-8 left-0 bg-green-500 text-white px-2 py-1 rounded text-xs font-bold whitespace-nowrap">
+            ✓ Uploaded
+          </div>
+        )}
+
+        {/* Upload error indicator */}
+        {uploadError && !isUploading && (
+          <div className="absolute -top-8 left-0 bg-red-500 text-white px-2 py-1 rounded text-xs font-bold whitespace-nowrap">
+            ✗ Failed
+          </div>
+        )}
+      </div>
+
+      {/* Manual upload button */}
+      {recordedBlob && !autoUpload && uploadToCloudinary && (
+        <Button
+          onClick={handleManualUpload}
+          disabled={isUploading}
+          size="sm"
+          variant="outline"
+          className="flex items-center gap-1"
+        >
+          <Upload className="w-3 h-3" />
+          <span className="text-xs">Upload</span>
+        </Button>
+      )}
 
       {/* Parental Consent Modal */}
       <ParentalConsentModal
@@ -342,6 +473,6 @@ export default function ScreenRecorder({
         onClose={() => setShowConsentModal(false)}
         onConsent={handleConsentResponse}
       />
-    </>
+    </div>
   )
 }

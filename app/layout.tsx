@@ -7,7 +7,7 @@ import { Toaster as SonnerToaster } from 'sonner'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
-  title: 'FutureLearner.ai',
+  title: 'FutureLearner.ai (Teaser Version)',
   description: 'AI Tutor for Every Student',
 }
 

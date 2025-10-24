@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaRecorder Format Test - Workflow Verification</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            padding: 20px; 
+            max-width: 1200px; 
+            margin: 0 auto;
+        }
+        .test-section { 
+            margin: 20px 0; 
+            padding: 20px; 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+        }
+        .format-test { 
+            margin: 10px 0; 
+            padding: 10px; 
+            border-radius: 5px; 
+        }
+        .supported { 
+            background-color: #d4edda; 
+            color: #155724; 
+            border: 1px solid #c3e6cb;
+        }
+        .not-supported { 
+            background-color: #f8d7da; 
+            color: #721c24; 
+            border: 1px solid #f5c6cb;
+        }
+        .priority-high { 
+            font-weight: bold; 
+            border-left: 4px solid #28a745;
+        }
+        .priority-medium { 
+            border-left: 4px solid #ffc107;
+        }
+        .priority-low { 
+            border-left: 4px solid #dc3545;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .recording-status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .recording { background: #fff3cd; color: #856404; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .upload-test {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎥 Recording Workflow Test - Post-Fix Verification</h1>
+    <p>This page tests the complete recording workflow after our Cloudinary upload fixes.</p>
+    
+    <div class="test-section">
+        <h2>📋 Format Compatibility Test</h2>
+        <p>Testing MediaRecorder format support with our new priority order:</p>
+        <div id="format-results"></div>
+    </div>
+
+    <div class="test-section">
+        <h2>🎬 Live Recording Test</h2>
+        <p>Test actual recording with the selected format:</p>
+        <div>
+            <button id="start-recording" class="test-button">Start Recording</button>
+            <button id="stop-recording" class="test-button" disabled>Stop Recording</button>
+            <button id="test-upload" class="test-button" disabled>Test Upload</button>
+        </div>
+        <div id="recording-status"></div>
+        <video id="preview-video" controls style="max-width: 400px; margin: 10px 0; display: none;"></video>
+    </div>
+
+    <div class="test-section">
+        <h2>📤 Upload Test Results</h2>
+        <div id="upload-results"></div>
+    </div>
+
+    <script>
+        let mediaRecorder = null;
+        let recordedChunks = [];
+        let selectedFormat = null;
+
+        // Test format compatibility
+        function testFormats() {
+            const formats = [
+                { 
+                    mime: 'video/mp4', 
+                    priority: 'HIGH', 
+                    description: 'MP4 - Best Cloudinary compatibility',
+                    cloudinarySupport: true
+                },
+                { 
+                    mime: 'video/webm', 
+                    priority: 'HIGH', 
+                    description: 'WebM - Generic, widely supported',
+                    cloudinarySupport: true
+                },
+                { 
+                    mime: 'video/webm;codecs=vp8', 
+                    priority: 'MEDIUM', 
+                    description: 'WebM with VP8 codec',
+                    cloudinarySupport: true
+                },
+                { 
+                    mime: 'video/webm;codecs=h264', 
+                    priority: 'MEDIUM', 
+                    description: 'WebM with H264 codec',
+                    cloudinarySupport: true
+                },
+                { 
+                    mime: 'video/webm;codecs=vp9,opus', 
+                    priority: 'LOW', 
+                    description: 'WebM with VP9+Opus (PROBLEMATIC - should not be used)',
+                    cloudinarySupport: false
+                },
+                { 
+                    mime: 'video/webm;codecs=vp8,opus', 
+                    priority: 'LOW', 
+                    description: 'WebM with VP8+Opus',
+                    cloudinarySupport: true
+                }
+            ];
+            
+            const resultsDiv = document.getElementById('format-results');
+            let recommendedFormat = null;
+            
+            formats.forEach(format => {
+                const supported = MediaRecorder.isTypeSupported(format.mime);
+                const formatDiv = document.createElement('div');
+                
+                let priorityClass = '';
+                if (format.priority === 'HIGH') priorityClass = 'priority-high';
+                else if (format.priority === 'MEDIUM') priorityClass = 'priority-medium';
+                else priorityClass = 'priority-low';
+                
+                formatDiv.className = `format-test ${supported ? 'supported' : 'not-supported'} ${priorityClass}`;
+                
+                const cloudinaryIcon = format.cloudinarySupport ? '☁️' : '❌';
+                const supportIcon = supported ? '✅' : '❌';
+                
+                formatDiv.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <strong>${supportIcon} ${format.mime}</strong><br>
+                            <small>${format.description}</small>
+                        </div>
+                        <div style="text-align: right;">
+                            <div>Priority: ${format.priority}</div>
+                            <div>Cloudinary: ${cloudinaryIcon}</div>
+                        </div>
+                    </div>
+                `;
+                
+                resultsDiv.appendChild(formatDiv);
+                
+                // Select the first supported high-priority format
+                if (supported && format.priority === 'HIGH' && !recommendedFormat) {
+                    recommendedFormat = format.mime;
+                }
+            });
+            
+            // Fallback selection
+            if (!recommendedFormat) {
+                if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+                    recommendedFormat = 'video/webm;codecs=vp8';
+                } else {
+                    recommendedFormat = 'video/webm'; // Browser default
+                }
+            }
+            
+            selectedFormat = recommendedFormat;
+            
+            // Show selected format
+            const selectedDiv = document.createElement('div');
+            selectedDiv.style.marginTop = '20px';
+            selectedDiv.style.padding = '15px';
+            selectedDiv.style.backgroundColor = '#e7f3ff';
+            selectedDiv.style.borderRadius = '5px';
+            selectedDiv.style.border = '2px solid #007bff';
+            
+            selectedDiv.innerHTML = `
+                <h3>🎯 Selected Format for Testing:</h3>
+                <strong>${selectedFormat}</strong>
+                <p><small>This format will be used for the recording test below.</small></p>
+            `;
+            
+            resultsDiv.appendChild(selectedDiv);
+        }
+
+        // Recording functionality
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: true, 
+                    audio: true 
+                });
+                
+                const options = selectedFormat ? { mimeType: selectedFormat } : {};
+                mediaRecorder = new MediaRecorder(stream, options);
+                recordedChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+                
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: selectedFormat });
+                    const url = URL.createObjectURL(blob);
+                    
+                    const video = document.getElementById('preview-video');
+                    video.src = url;
+                    video.style.display = 'block';
+                    
+                    document.getElementById('test-upload').disabled = false;
+                    updateStatus('Recording completed! You can now test upload.', 'success');
+                };
+                
+                mediaRecorder.start();
+                
+                document.getElementById('start-recording').disabled = true;
+                document.getElementById('stop-recording').disabled = false;
+                updateStatus('Recording started...', 'recording');
+                
+                // Auto-stop after 10 seconds for testing
+                setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        stopRecording();
+                    }
+                }, 10000);
+                
+            } catch (error) {
+                updateStatus(`Error starting recording: ${error.message}`, 'error');
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                document.getElementById('start-recording').disabled = false;
+                document.getElementById('stop-recording').disabled = true;
+            }
+        }
+
+        async function testUpload() {
+            if (recordedChunks.length === 0) {
+                updateStatus('No recording to upload!', 'error');
+                return;
+            }
+            
+            const blob = new Blob(recordedChunks, { type: selectedFormat });
+            const formData = new FormData();
+            formData.append('file', blob, `test-recording.${selectedFormat.includes('mp4') ? 'mp4' : 'webm'}`);
+            
+            const uploadResults = document.getElementById('upload-results');
+            uploadResults.innerHTML = '<p>Testing upload...</p>';
+            
+            try {
+                // Test local upload
+                const response = await fetch('/api/recordings/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    uploadResults.innerHTML = `
+                        <div class="upload-test success">
+                            <h3>✅ Local Upload Test: SUCCESS</h3>
+                            <p><strong>Status:</strong> ${response.status}</p>
+                            <p><strong>File Path:</strong> ${result.path}</p>
+                            <p><strong>Format Used:</strong> ${selectedFormat}</p>
+                            <p><strong>File Size:</strong> ${(blob.size / 1024).toFixed(2)} KB</p>
+                        </div>
+                    `;
+                } else {
+                    uploadResults.innerHTML = `
+                        <div class="upload-test error">
+                            <h3>❌ Local Upload Test: FAILED</h3>
+                            <p><strong>Status:</strong> ${response.status}</p>
+                            <p><strong>Error:</strong> ${result.error || 'Unknown error'}</p>
+                        </div>
+                    `;
+                }
+                
+            } catch (error) {
+                uploadResults.innerHTML = `
+                    <div class="upload-test error">
+                        <h3>❌ Upload Test: NETWORK ERROR</h3>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('recording-status');
+            statusDiv.className = `recording-status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        // Event listeners
+        document.getElementById('start-recording').addEventListener('click', startRecording);
+        document.getElementById('stop-recording').addEventListener('click', stopRecording);
+        document.getElementById('test-upload').addEventListener('click', testUpload);
+
+        // Initialize
+        if (typeof MediaRecorder !== 'undefined') {
+            testFormats();
+        } else {
+            document.getElementById('format-results').innerHTML = 
+                '<div class="format-test not-supported">❌ MediaRecorder API not supported in this browser</div>';
+        }
+    </script>
+</body>
+</html>

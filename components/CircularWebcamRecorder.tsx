@@ -2,19 +2,28 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { Circle, StopCircle } from 'lucide-react'
+import { CirclePlay, StopCircle, Upload } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
-
-// Import Webcam with dynamic import to avoid SSR issues
+import { useCloudinaryUpload } from '@/hooks/useCloudinaryUpload'
+import { WebcamRecorderProps } from '@/types/cloudinary'
 import dynamic from 'next/dynamic'
-const Webcam = dynamic(() => import('react-webcam') as any, { ssr: false })
 
-interface CircularWebcamRecorderProps {
+// Dynamically import Webcam to avoid SSR issues
+const Webcam = dynamic(
+  // @ts-expect-error - Dynamic import type issue with react-webcam
+  () => import('react-webcam'),
+  { 
+    ssr: false,
+    loading: () => <div>Loading camera...</div>
+  }
+) as any
+
+interface CircularWebcamRecorderProps extends WebcamRecorderProps {
   width?: number
   height?: number
   className?: string
   onRecordingStart?: () => void
-  onRecordingStop?: (recordingUrl: string) => void
+  onRecordingStop?: (url: string) => void
 }
 
 export default function CircularWebcamRecorder({
@@ -22,7 +31,14 @@ export default function CircularWebcamRecorder({
   height = 200,
   className = '',
   onRecordingStart,
-  onRecordingStop
+  onRecordingStop,
+  onRecordingComplete,
+  onError,
+  userId,
+  sessionId,
+  maxDuration = 300, // 5 minutes default
+  autoUpload = true,
+  uploadToCloudinary = true,
 }: CircularWebcamRecorderProps) {
   const { toast } = useToast()
   const webcamRef = useRef<any>(null)
@@ -31,12 +47,22 @@ export default function CircularWebcamRecorder({
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([])
   const [recordingDuration, setRecordingDuration] = useState(0)
   const [isCameraReady, setIsCameraReady] = useState(false)
-  const [webcamLoaded, setWebcamLoaded] = useState(false)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cloudinary upload hook
+  const {
+    isUploading,
+    uploadProgress,
+    uploadResponse,
+    error: uploadError,
+    uploadToCloudinary: uploadToCloudinaryFn,
+    clearError
+  } = useCloudinaryUpload()
   
   // Set webcam as loaded after component mounts
   useEffect(() => {
-    setWebcamLoaded(true)
+    // Component mounted, webcam will be ready when onUserMedia is called
   }, [])
 
   // Clean up timer on unmount
@@ -71,8 +97,26 @@ export default function CircularWebcamRecorder({
     // Get media stream from webcam
     const stream = webcamRef.current.stream
     
-    // Create MediaRecorder instance
-    const options = { mimeType: 'video/webm;codecs=vp9,opus' }
+    // Create MediaRecorder instance with Cloudinary-compatible formats
+    // Priority order: mp4 (best compatibility) -> webm (without specific codecs) -> fallback
+    let options = { mimeType: 'video/mp4' }
+    
+    // Try different MIME types in order of Cloudinary compatibility
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      // Try webm without specific codecs (Cloudinary supports this)
+      options = { mimeType: 'video/webm' }
+      
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        // Try webm with vp8 (more compatible than vp9)
+        options = { mimeType: 'video/webm;codecs=vp8' }
+        
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+          // Last resort - use browser default
+          options = {}
+        }
+      }
+    }
+    
     try {
       const recorder = new MediaRecorder(stream, options)
       
@@ -87,7 +131,14 @@ export default function CircularWebcamRecorder({
       
       // Start duration timer
       timerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1)
+        setRecordingDuration(prev => {
+          const newDuration = prev + 1
+          // Auto-stop recording if max duration reached
+          if (newDuration >= maxDuration) {
+            handleStopRecording()
+          }
+          return newDuration
+        })
       }, 1000)
       
       // Notify parent component
@@ -129,60 +180,132 @@ export default function CircularWebcamRecorder({
     }
   }, [isRecording])
 
-  // Save recording when chunks are available
+  // Process recording when chunks are available
   useEffect(() => {
     if (recordedChunks.length > 0 && !isRecording) {
-      saveRecording()
+      processRecording()
+      // Clear chunks after processing to prevent duplicate uploads
+      setRecordedChunks([])
     }
   }, [recordedChunks, isRecording])
 
-  // Save recording to server
-  const saveRecording = async () => {
-    if (recordedChunks.length === 0) return
-    
+  const processRecording = async () => {
     try {
-      // Create a blob from the recorded chunks
-      const blob = new Blob(recordedChunks, {
-        type: 'video/webm'
+      const blob = new Blob(recordedChunks, { type: 'video/webm' })
+      setRecordedBlob(blob)
+      
+      if (uploadToCloudinary && autoUpload) {
+        await handleCloudinaryUpload(blob)
+      } else {
+        // Fallback to local upload
+        await handleLocalUpload(blob)
+      }
+    } catch (error) {
+      console.error('Error processing recording:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      toast({
+        title: 'Error',
+        description: `Failed to process recording: ${errorMessage}`,
+        variant: 'destructive',
       })
       
+      onError?.(errorMessage)
+    }
+  }
+
+  const handleCloudinaryUpload = async (blob: Blob) => {
+    try {
+      clearError()
+      
+      const result = await uploadToCloudinaryFn(blob, {
+        type: 'circular',
+        userId,
+        sessionId
+      })
+      
+      if (result) {
+        toast({
+          title: 'Recording uploaded successfully!',
+          description: 'Your video has been saved to the cloud.',
+        })
+        
+        onRecordingComplete?.({
+          ...result,
+          blob,
+          url: result.data?.url || result.data?.originalUrl || '',
+          cloudinaryData: result.data,
+          duration: recordingDuration,
+          type: 'circular'
+        })
+
+        // Also call legacy callback for backward compatibility
+        onRecordingStop?.(result.data?.url || result.data?.originalUrl || '')
+      }
+    } catch (error) {
+      console.error('Cloudinary upload failed:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed'
+      
+      toast({
+        title: 'Upload Failed',
+        description: `Failed to upload to cloud: ${errorMessage}`,
+        variant: 'destructive',
+      })
+      
+      // Fallback to local upload
+      if (autoUpload) {
+        await handleLocalUpload(blob)
+      }
+    }
+  }
+
+  const handleLocalUpload = async (blob: Blob) => {
+    try {
       // Create a temporary URL for preview
-      const recordingUrl = URL.createObjectURL(blob)
+      const tempUrl = URL.createObjectURL(blob)
       
-      // Notify parent component
-      if (onRecordingStop) onRecordingStop(recordingUrl)
-      
-      // Create form data for upload
       const formData = new FormData()
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `recording-${timestamp}.webm`
+      const filename = `circular-webcam-recording-${timestamp}.webm`
+      
+      // Use 'file' to match the API route expectation
       formData.append('file', blob, filename)
       
-      // Upload to server
       const response = await fetch('/api/recordings/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
       })
       
       if (response.ok) {
-        const data = await response.json()
+        const result = await response.json()
         toast({
-          title: "Recording Saved",
-          description: `Recording saved as ${data.filename}`,
+          title: 'Recording saved successfully!',
+          description: `File: ${result.filename}`,
         })
+        
+        onRecordingComplete?.({
+          success: true,
+          blob,
+          url: tempUrl,
+          localData: result,
+          duration: recordingDuration,
+          type: 'circular'
+        })
+
+        // Also call legacy callback for backward compatibility
+        onRecordingStop?.(tempUrl)
       } else {
-        throw new Error('Failed to upload recording')
+        throw new Error('Failed to save recording')
       }
-    } catch (err) {
-      console.error('Error saving recording:', err)
-      toast({
-        title: "Save Error",
-        description: "Failed to save recording. Please try again.",
-        variant: "destructive"
-      })
-    } finally {
-      // Reset recorded chunks
-      setRecordedChunks([])
+    } catch (error) {
+      console.error('Error saving recording locally:', error)
+      throw error
+    }
+  }
+
+  const handleManualUpload = async () => {
+    if (recordedBlob) {
+      await handleCloudinaryUpload(recordedBlob)
     }
   }
 
@@ -200,28 +323,46 @@ export default function CircularWebcamRecorder({
         style={{ width, height }}
       >
         {/* Webcam component */}
-        {webcamLoaded && Webcam && (
-          <Webcam
-            {...({
-              audio: false,
-              ref: webcamRef,
-              videoConstraints: {
-                width,
-                height,
-                facingMode: "user"
-              },
-              onUserMedia: handleUserMedia,
-              className: "absolute top-0 left-0 w-full h-full object-cover",
-              screenshotFormat: "image/jpeg"
-            } as any)}
-          />
-        )}
+        <Webcam
+          audio={false}
+          ref={webcamRef}
+          videoConstraints={{
+            width,
+            height,
+            facingMode: "user"
+          }}
+          onUserMedia={handleUserMedia}
+          className="absolute top-0 left-0 w-full h-full object-cover"
+          screenshotFormat="image/jpeg"
+        />
         
         {/* Recording indicator */}
         {isRecording && (
           <div className="absolute top-2 right-2 flex items-center gap-1 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
             <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
             <span>{formatDuration(recordingDuration)}</span>
+          </div>
+        )}
+
+        {/* Upload progress indicator */}
+        {isUploading && (
+          <div className="absolute top-2 left-2 bg-blue-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+            <Upload className="w-3 h-3 animate-spin" />
+            {uploadProgress}%
+          </div>
+        )}
+
+        {/* Upload success indicator */}
+        {uploadResponse && !isUploading && (
+          <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+            ✓ Uploaded
+          </div>
+        )}
+
+        {/* Upload error indicator */}
+        {uploadError && !isUploading && (
+          <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+            ✗ Failed
           </div>
         )}
         
@@ -240,7 +381,7 @@ export default function CircularWebcamRecorder({
             variant="destructive" 
             size="sm" 
             onClick={handleStopRecording}
-            disabled={!isCameraReady}
+            disabled={!isCameraReady || isUploading}
           >
             <StopCircle className="w-4 h-4 mr-1" />
             Stop
@@ -250,10 +391,23 @@ export default function CircularWebcamRecorder({
             variant="default" 
             size="sm" 
             onClick={handleStartRecording}
-            disabled={!isCameraReady}
+            disabled={!isCameraReady || isUploading}
           >
-            <Circle className="w-4 h-4 mr-1" />
+            <CirclePlay className="w-4 h-4 mr-1" />
             Record
+          </Button>
+        )}
+
+        {/* Manual upload button */}
+        {recordedBlob && !autoUpload && uploadToCloudinary && (
+          <Button
+            onClick={handleManualUpload}
+            disabled={isUploading}
+            size="sm"
+            variant="outline"
+          >
+            <Upload className="w-4 h-4 mr-1" />
+            Upload
           </Button>
         )}
       </div>

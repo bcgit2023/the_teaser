@@ -2,10 +2,12 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
-import { CirclePlay, StopCircle } from 'lucide-react'
+import { CirclePlay, StopCircle, Upload } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
+import { useCloudinaryUpload } from '@/hooks/useCloudinaryUpload'
+import { WebcamRecorderProps } from '@/types/cloudinary'
 
-interface SimpleWebcamRecorderProps {
+interface SimpleWebcamRecorderProps extends WebcamRecorderProps {
   width?: number
   height?: number
   className?: string
@@ -15,6 +17,13 @@ export default function SimpleWebcamRecorder({
   width = 200,
   height = 200,
   className = '',
+  onRecordingComplete,
+  onError,
+  userId,
+  sessionId,
+  maxDuration = 300, // 5 minutes default
+  autoUpload = true,
+  uploadToCloudinary = true,
 }: SimpleWebcamRecorderProps) {
   const { toast } = useToast()
   const videoRef = useRef<HTMLVideoElement | null>(null)
@@ -26,7 +35,18 @@ export default function SimpleWebcamRecorder({
   const [isCameraReady, setIsCameraReady] = useState(false)
   const [recordingMimeType, setRecordingMimeType] = useState<string>('')
   const [fileExtension, setFileExtension] = useState<string>('webm')
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Cloudinary upload hook
+  const {
+    isUploading,
+    uploadProgress,
+    uploadResponse,
+    error: uploadError,
+    uploadToCloudinary: uploadToCloudinaryFn,
+    clearError
+  } = useCloudinaryUpload()
 
   // Initialize camera on component mount
   useEffect(() => {
@@ -82,21 +102,27 @@ export default function SimpleWebcamRecorder({
     setRecordedChunks([])
     setRecordingDuration(0)
     
-    // Create MediaRecorder instance with proper codec support
-    let options = { mimeType: 'video/webm;codecs=vp9,opus' }
-    let fileExtension = 'webm'
+    // Create MediaRecorder instance with Cloudinary-compatible formats
+    // Priority order: mp4 (best compatibility) -> webm (without specific codecs) -> fallback
+    let options = { mimeType: 'video/mp4' }
+    let fileExtension = 'mp4'
     
-    // Try different MIME types in order of preference
+    // Try different MIME types in order of Cloudinary compatibility
     if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options = { mimeType: 'video/webm;codecs=vp8,opus' }
+      // Try webm without specific codecs (Cloudinary supports this)
+      options = { mimeType: 'video/webm' }
+      fileExtension = 'webm'
       
       if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options = { mimeType: 'video/webm' }
-      }
-      
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options = { mimeType: 'video/mp4' }
-        fileExtension = 'mp4'
+        // Try webm with vp8 (more compatible than vp9)
+        options = { mimeType: 'video/webm;codecs=vp8' }
+        fileExtension = 'webm'
+        
+        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+          // Last resort - use browser default
+          options = {}
+          fileExtension = 'webm'
+        }
       }
     }
     try {
@@ -120,7 +146,14 @@ export default function SimpleWebcamRecorder({
       
       // Start duration timer
       timerRef.current = setInterval(() => {
-        setRecordingDuration(prev => prev + 1)
+        setRecordingDuration(prev => {
+          const newDuration = prev + 1
+          // Auto-stop recording if max duration reached
+          if (newDuration >= maxDuration) {
+            handleStopRecording()
+          }
+          return newDuration
+        })
       }, 1000)
       
       toast({
@@ -152,56 +185,125 @@ export default function SimpleWebcamRecorder({
     }
   }, [isRecording])
 
-  // Save recording when chunks are available
+  // Process recording when chunks are available
   useEffect(() => {
     if (recordedChunks.length > 0 && !isRecording) {
-      saveRecording()
-      // Clear chunks after saving to prevent duplicate uploads
+      processRecording()
+      // Clear chunks after processing to prevent duplicate uploads
       setRecordedChunks([])
     }
   }, [recordedChunks, isRecording])
 
-  // Save recording to server
-  const saveRecording = async () => {
-    if (recordedChunks.length === 0) return
-    
+  const processRecording = async () => {
     try {
-      // Create a blob from the recorded chunks with correct MIME type
-      const blob = new Blob(recordedChunks, {
-        type: recordingMimeType || 'video/webm'
+      const blob = new Blob(recordedChunks, { type: recordingMimeType })
+      setRecordedBlob(blob)
+      
+      if (uploadToCloudinary && autoUpload) {
+        await handleCloudinaryUpload(blob)
+      } else {
+        // Fallback to local upload
+        await handleLocalUpload(blob)
+      }
+    } catch (error) {
+      console.error('Error processing recording:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+      
+      toast({
+        title: 'Error',
+        description: `Failed to process recording: ${errorMessage}`,
+        variant: 'destructive',
       })
       
-      // Create form data for upload with correct file extension
+      onError?.(errorMessage)
+    }
+  }
+
+  const handleCloudinaryUpload = async (blob: Blob) => {
+    try {
+      clearError()
+      
+      const result = await uploadToCloudinaryFn(blob, {
+        type: 'webcam',
+        userId,
+        sessionId
+      })
+      
+      if (result) {
+        toast({
+          title: 'Recording uploaded successfully!',
+          description: 'Your video has been saved to the cloud.',
+        })
+        
+        onRecordingComplete?.({
+          ...result,
+          blob,
+          url: result.data?.url || result.data?.originalUrl || '',
+          cloudinaryData: result.data,
+          duration: recordingDuration,
+          type: 'webcam'
+        })
+      }
+    } catch (error) {
+      console.error('Cloudinary upload failed:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed'
+      
+      toast({
+        title: 'Upload Failed',
+        description: `Failed to upload to cloud: ${errorMessage}`,
+        variant: 'destructive',
+      })
+      
+      // Fallback to local upload
+      if (autoUpload) {
+        await handleLocalUpload(blob)
+      }
+    }
+  }
+
+  const handleLocalUpload = async (blob: Blob) => {
+    try {
       const formData = new FormData()
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-      const filename = `recording-${timestamp}.${fileExtension}`
+      const filename = `webcam-recording-${timestamp}.${fileExtension}`
+      
+      // Use 'file' to match the API route expectation
       formData.append('file', blob, filename)
       
-      // Upload to server
       const response = await fetch('/api/recordings/upload', {
         method: 'POST',
-        body: formData
+        body: formData,
       })
       
       if (response.ok) {
-        const data = await response.json()
+        const result = await response.json()
+        const objectUrl = URL.createObjectURL(blob)
+        
         toast({
-          title: "Recording Saved",
-          description: `Recording saved as ${data.filename}`,
+          title: 'Recording saved successfully!',
+          description: `File: ${result.filename}`,
+        })
+        
+        onRecordingComplete?.({
+          success: true,
+          blob,
+          url: objectUrl,
+          localData: result,
+          duration: recordingDuration,
+          type: 'webcam'
         })
       } else {
-        throw new Error('Failed to upload recording')
+        throw new Error('Failed to save recording')
       }
-    } catch (err) {
-      console.error('Error saving recording:', err)
-      toast({
-        title: "Save Error",
-        description: "Failed to save recording. Please try again.",
-        variant: "destructive"
-      })
-    } finally {
-      // Reset recorded chunks
-      setRecordedChunks([])
+    } catch (error) {
+      console.error('Error saving recording locally:', error)
+      throw error
+    }
+  }
+
+  const handleManualUpload = async () => {
+    if (recordedBlob) {
+      await handleCloudinaryUpload(recordedBlob)
     }
   }
 
@@ -234,6 +336,28 @@ export default function SimpleWebcamRecorder({
             <span>{formatDuration(recordingDuration)}</span>
           </div>
         )}
+
+        {/* Upload progress indicator */}
+        {isUploading && (
+          <div className="absolute top-2 left-2 bg-blue-500 text-white px-2 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+            <Upload className="w-3 h-3 animate-spin" />
+            {uploadProgress}%
+          </div>
+        )}
+
+        {/* Upload success indicator */}
+        {uploadResponse && !isUploading && (
+          <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+            ✓ Uploaded
+          </div>
+        )}
+
+        {/* Upload error indicator */}
+        {uploadError && !isUploading && (
+          <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-full text-xs font-bold">
+            ✗ Failed
+          </div>
+        )}
         
         {/* Camera not ready overlay */}
         {!isCameraReady && (
@@ -250,7 +374,7 @@ export default function SimpleWebcamRecorder({
             variant="destructive" 
             size="sm" 
             onClick={handleStopRecording}
-            disabled={!isCameraReady}
+            disabled={!isCameraReady || isUploading}
           >
             <StopCircle className="w-4 h-4 mr-1" />
             Stop
@@ -260,10 +384,23 @@ export default function SimpleWebcamRecorder({
             variant="default" 
             size="sm" 
             onClick={handleStartRecording}
-            disabled={!isCameraReady}
+            disabled={!isCameraReady || isUploading}
           >
             <CirclePlay className="w-4 h-4 mr-1" />
             Record
+          </Button>
+        )}
+
+        {/* Manual upload button */}
+        {recordedBlob && !autoUpload && uploadToCloudinary && (
+          <Button
+            onClick={handleManualUpload}
+            disabled={isUploading}
+            size="sm"
+            variant="outline"
+          >
+            <Upload className="w-4 h-4 mr-1" />
+            Upload
           </Button>
         )}
       </div>
