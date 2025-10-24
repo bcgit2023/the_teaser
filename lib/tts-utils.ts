@@ -60,14 +60,14 @@ export async function generateSpeechWithElevenLabs(
  * Generate speech from text using OpenAI TTS API (fallback)
  * @param text The text to convert to speech
  * @param voice The voice to use (default: 'nova')
- * @param model The TTS model to use (default: 'tts-1')
+ * @param model The TTS model to use (default: 'tts-1-hd')
  * @param speed The speaking speed (default: 1.0)
  * @returns A Promise that resolves to an audio Blob
  */
 export async function generateSpeechWithOpenAI(
   text: string,
   voice: TTSVoice = 'nova',
-  model: TTSModel = 'tts-1',
+  model: TTSModel = 'tts-1-hd',
   speed: number = 1.0
 ): Promise<Blob> {
   const response = await fetch('/api/text-to-speech', {

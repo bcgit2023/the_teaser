@@ -137,13 +137,19 @@ export async function retryOpenAICall<T>(
   console.log(`[OPENAI-RETRY] Starting ${operationName}`)
   
   return retryWithBackoff(fn, {
-    maxRetries: 3,
-    baseDelay: 2000,  // Start with 2 seconds
-    maxDelay: 15000,  // Max 15 seconds
+    maxRetries: 4,    // Increased from 3 to 4 for better reliability
+    baseDelay: 1500,  // Start with 1.5 seconds
+    maxDelay: 20000,  // Max 20 seconds
     backoffFactor: 2,
     retryCondition: (error) => {
       const isRetryable = isRetryableError(error)
       console.log(`[OPENAI-RETRY] Error ${error.message} is ${isRetryable ? 'retryable' : 'not retryable'}`)
+      console.log(`[OPENAI-RETRY] Error details:`, {
+        status: error.status,
+        code: error.code,
+        type: error.type,
+        name: error.name
+      })
       return isRetryable
     }
   })

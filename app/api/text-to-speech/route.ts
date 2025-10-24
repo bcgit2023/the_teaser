@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { retryOpenAICall } from '@/lib/retry-utils'
 
+// Enable Edge Runtime for better performance and longer timeouts (30s vs 10s)
+export const runtime = 'edge'
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 60000, // 60 seconds timeout
+  timeout: 90000, // 90 seconds timeout for TTS
 })
 
 type TTSVoice = 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer'
@@ -26,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON in request body' }, { status: 400 })
   }
 
-  const { text, voice = 'nova', model = 'tts-1', speed = 1.0 } = body
+  const { text, voice = 'nova', model = 'tts-1-hd', speed = 1.0 } = body
 
   // Validate required fields
   if (!text) {
@@ -42,6 +45,9 @@ export async function POST(req: Request) {
   }
 
   try {
+    console.log(`[OpenAI TTS] Starting generation for text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`)
+    console.log(`[OpenAI TTS] Using model: ${model}, voice: ${voice}, speed: ${speed}`)
+    
     // Create TTS request with retry logic
     const response = await retryOpenAICall(
       () => openai.audio.speech.create({
@@ -50,21 +56,34 @@ export async function POST(req: Request) {
         input: text,
         speed,
       }),
-      'Text-to-Speech generation'
+      'OpenAI Text-to-Speech generation'
     )
 
+    console.log(`[OpenAI TTS] Successfully received response from OpenAI`)
+    
     // Convert the raw audio data to a buffer
     const buffer = Buffer.from(await response.arrayBuffer())
+    
+    console.log(`[OpenAI TTS] Generated audio buffer of ${buffer.length} bytes`)
 
     // Return the audio as a response with the correct content type
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Cache-Control': 'public, max-age=86400', // Cache for 24 hours
+        'X-TTS-Provider': 'OpenAI',
+        'X-TTS-Model': model,
       },
     })
   } catch (error: any) {
-    console.error('OpenAI TTS API error:', error)
+    console.error('[OpenAI TTS] API error:', error)
+    console.error('[OpenAI TTS] Error details:', {
+      message: error.message,
+      status: error.status,
+      code: error.code,
+      type: error.type,
+      stack: error.stack
+    })
     
     // Handle different types of errors
     if (error.status === 429) {
@@ -75,6 +94,12 @@ export async function POST(req: Request) {
     } else if (error.status === 401 || error.status === 403) {
       return NextResponse.json(
         { error: 'Authentication error with OpenAI API' },
+        { status: 500 }
+      )
+    } else if (error.name === 'RetryError') {
+      // This is from our retry utility
+      return NextResponse.json(
+        { error: 'Failed to generate speech', details: error.message },
         { status: 500 }
       )
     } else {
