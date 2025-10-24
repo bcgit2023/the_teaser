@@ -1,5 +1,9 @@
 # Non-essential files (not for deployment)
 /NOUSE
+/node_modules
+/.next
+/dist
+/build
 
 # Development and documentation files
 README.md
@@ -17,6 +21,18 @@ STAGE1_COMPLETION_SUMMARY.md
 *copy.tsx
 *copy.ts
 *copy.js
+
+# Large files and archives
+*.zip
+*.tar
+*.gz
+*.rar
+*.7z
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
 
 # Development logs and cache
 *.log

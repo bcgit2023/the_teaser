@@ -434,7 +434,16 @@ async function transcribeWithWhisper(
     const errorData = await response.json().catch(() => ({}))
     const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
     console.error('[transcribeWithWhisper] API error:', errorMessage)
-    throw new Error(errorMessage)
+    console.error('[transcribeWithWhisper] Full error response:', errorData)
+    
+    // Provide more specific error messages for common issues
+    if (response.status === 400) {
+      throw new Error(`Audio format error: ${errorMessage}`)
+    } else if (response.status === 500) {
+      throw new Error(`Server error during transcription: ${errorMessage}`)
+    } else {
+      throw new Error(`Failed to transcribe audio: ${errorMessage}`)
+    }
   }
 
   const data = await response.json()

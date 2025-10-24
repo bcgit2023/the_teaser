@@ -26,6 +26,7 @@ export class AudioRecorder {
   private callbacks: AudioRecorderCallbacks
   private maxDurationTimer: NodeJS.Timeout | null = null
   private isRecording = false
+  private recordingStartTime: number = 0
 
   constructor(config: AudioRecorderConfig = {}, callbacks: AudioRecorderCallbacks = {}) {
     this.config = {
@@ -40,23 +41,36 @@ export class AudioRecorder {
 
   /**
    * Get the best supported MIME type for the current browser
+   * Prioritize formats that work well with OpenAI Whisper API
    */
   private getSupportedMimeType(): string {
-    const types = [
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/mp4',
-      'audio/mpeg',
-      'audio/wav'
+    // Prioritize formats that actually work with OpenAI Whisper API
+    // Note: WebM is removed because OpenAI Whisper doesn't actually support it despite listing it
+    const preferredTypes = [
+      'audio/wav',              // Best compatibility with Whisper
+      'audio/mp4',              // Good compatibility
+      'audio/mpeg',             // MP3 format, widely supported
+      'audio/mp3',              // Alternative MP3 MIME type
+      'audio/ogg;codecs=opus',  // OGG with Opus codec
+      'audio/ogg',              // Basic OGG format
+      'audio/webm;codecs=opus', // Last resort: WebM with Opus (may not work with Whisper)
+      'audio/webm'              // Absolute last resort
     ]
 
-    for (const type of types) {
-      if (MediaRecorder.isTypeSupported(type)) {
+    console.log('[AudioRecorder] Checking MIME type support:')
+    for (const type of preferredTypes) {
+      const isSupported = MediaRecorder.isTypeSupported(type)
+      console.log(`[AudioRecorder] ${type}: ${isSupported ? 'SUPPORTED' : 'NOT SUPPORTED'}`)
+      if (isSupported) {
+        console.log(`[AudioRecorder] Selected MIME type: ${type}`)
         return type
       }
     }
 
-    return 'audio/webm' // fallback
+    // Fallback to default
+    console.warn('[AudioRecorder] No preferred MIME type supported, using default webm')
+    console.log('[AudioRecorder] Final fallback MIME type: audio/webm')
+    return 'audio/webm'
   }
 
   /**
@@ -133,6 +147,7 @@ export class AudioRecorder {
 
       this.mediaRecorder.start(1000) // Collect data every second
       this.isRecording = true
+      this.recordingStartTime = Date.now()
 
       // Set max duration timer
       if (this.config.maxDuration) {
@@ -177,8 +192,16 @@ export class AudioRecorder {
    * Handle the recording stop event and create audio blob
    */
   private handleRecordingStop(): void {
+    const recordingDuration = Date.now() - this.recordingStartTime
+    
     if (this.audioChunks.length === 0) {
       this.callbacks.onError?.(new Error('No audio data recorded'))
+      return
+    }
+
+    // Check minimum recording duration (at least 500ms)
+    if (recordingDuration < 500) {
+      this.callbacks.onError?.(new Error('Recording too short. Please speak for at least half a second.'))
       return
     }
 
@@ -192,7 +215,21 @@ export class AudioRecorder {
       return
     }
 
-    console.log(`[AudioRecorder] Audio blob created: ${audioBlob.size} bytes, type: ${audioBlob.type}`)
+    console.log(`[AudioRecorder] Created audio blob:`)
+    console.log(`  - Size: ${audioBlob.size} bytes`)
+    console.log(`  - Type: ${audioBlob.type}`)
+    console.log(`  - MIME type used: ${this.config.mimeType}`)
+    console.log(`  - Chunks count: ${this.audioChunks.length}`)
+    
+    // Log first few bytes to check if it's a valid audio file
+    if (audioBlob.size > 0) {
+      audioBlob.slice(0, 16).arrayBuffer().then(buffer => {
+        const bytes = new Uint8Array(buffer)
+        const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ')
+        console.log(`[AudioRecorder] First 16 bytes: ${hex}`)
+      })
+    }
+    
     this.callbacks.onStop?.(audioBlob)
   }
 
@@ -265,8 +302,44 @@ export async function compressAudioBlob(
  */
 export function createAudioFilename(mimeType: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const extension = mimeType.includes('webm') ? 'webm' : 
-                   mimeType.includes('mp4') ? 'm4a' : 
-                   mimeType.includes('mpeg') ? 'mp3' : 'wav'
+  const extension = mimeType.includes('wav') ? 'wav' :
+                   mimeType.includes('mp4') ? 'm4a' :
+                   mimeType.includes('mpeg') || mimeType.includes('mp3') ? 'mp3' :
+                   mimeType.includes('ogg') ? 'ogg' : 'webm'
   return `recording-${timestamp}.${extension}`
+}
+
+/**
+ * Test function to check MIME type support in the current browser
+ * Can be called from browser console: window.testAudioMimeTypes()
+ */
+export function testAudioMimeTypes(): void {
+  console.log('=== Audio MIME Type Support Test ===')
+  
+  const testTypes = [
+    'audio/wav',
+    'audio/mp4',
+    'audio/mpeg',
+    'audio/mp3',
+    'audio/ogg;codecs=opus',
+    'audio/ogg',
+    'audio/webm;codecs=opus',
+    'audio/webm;codecs=pcm',
+    'audio/webm'
+  ]
+  
+  testTypes.forEach(type => {
+    const isSupported = MediaRecorder.isTypeSupported(type)
+    console.log(`${type}: ${isSupported ? '✅ SUPPORTED' : '❌ NOT SUPPORTED'}`)
+  })
+  
+  // Test what the AudioRecorder would select
+  const recorder = new AudioRecorder()
+  console.log(`\nSelected MIME type: ${recorder.getState().mimeType}`)
+  console.log('=== End Test ===')
+}
+
+// Make it available globally for testing
+if (typeof window !== 'undefined') {
+  (window as any).testAudioMimeTypes = testAudioMimeTypes
 }
