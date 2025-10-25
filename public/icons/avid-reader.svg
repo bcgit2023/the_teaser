@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Stack of books -->
+  <path d="M25 65h50v8H25z" fill="#9C27B0"/>
+  <path d="M30 55h45v8H30z" fill="#2196F3"/>
+  <path d="M35 45h40v8H35z" fill="#4CAF50"/>
+  <!-- Open book -->
+  <path d="M40 25c0-2 2-3 4-3h12c2 0 4 1 4 3v15c0 2-2 3-4 3H44c-2 0-4-1-4-3V25z" fill="#FFC107"/>
+  <path d="M60 25c0-2 2-3 4-3h12c2 0 4 1 4 3v15c0 2-2 3-4 3H64c-2 0-4-1-4-3V25z" fill="#FFC107"/>
+  <!-- Reading glasses -->
+  <circle cx="45" cy="35" r="3" stroke="#333" stroke-width="1.5" fill="none"/>
+  <circle cx="55" cy="35" r="3" stroke="#333" stroke-width="1.5" fill="none"/>
+  <path d="M48 35h4" stroke="#333" stroke-width="1.5"/>
+</svg>

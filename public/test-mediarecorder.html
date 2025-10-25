@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MediaRecorder Format Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 5px; }
+        .supported { background-color: #d4edda; color: #155724; }
+        .not-supported { background-color: #f8d7da; color: #721c24; }
+        .priority { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>🎥 MediaRecorder Format Compatibility Test</h1>
+    <p>This page tests which video formats are supported by your browser's MediaRecorder API.</p>
+    
+    <div id="results"></div>
+    
+    <script>
+        function testMediaRecorderFormats() {
+            const formats = [
+                { mime: 'video/mp4', priority: 'HIGH', description: 'MP4 (best Cloudinary compatibility)' },
+                { mime: 'video/webm', priority: 'HIGH', description: 'WebM (Cloudinary compatible)' },
+                { mime: 'video/webm;codecs=vp8', priority: 'MEDIUM', description: 'WebM with VP8 codec' },
+                { mime: 'video/webm;codecs=h264', priority: 'MEDIUM', description: 'WebM with H264 codec' },
+                { mime: 'video/webm;codecs=vp9,opus', priority: 'LOW', description: 'WebM with VP9+Opus (problematic)' },
+                { mime: 'video/webm;codecs=vp8,opus', priority: 'LOW', description: 'WebM with VP8+Opus' }
+            ];
+            
+            const resultsDiv = document.getElementById('results');
+            
+            formats.forEach(format => {
+                const supported = MediaRecorder.isTypeSupported(format.mime);
+                const resultDiv = document.createElement('div');
+                resultDiv.className = `test-result ${supported ? 'supported' : 'not-supported'}`;
+                
+                const priorityClass = format.priority === 'HIGH' ? 'priority' : '';
+                
+                resultDiv.innerHTML = `
+                    <span class="${priorityClass}">${supported ? '✅' : '❌'} ${format.mime}</span><br>
+                    <small>${format.description} (Priority: ${format.priority})</small>
+                `;
+                
+                resultsDiv.appendChild(resultDiv);
+            });
+            
+            // Show recommended format
+            const recommendedDiv = document.createElement('div');
+            recommendedDiv.style.marginTop = '20px';
+            recommendedDiv.style.padding = '15px';
+            recommendedDiv.style.backgroundColor = '#e7f3ff';
+            recommendedDiv.style.borderRadius = '5px';
+            
+            let recommended = 'video/webm'; // fallback
+            if (MediaRecorder.isTypeSupported('video/mp4')) {
+                recommended = 'video/mp4';
+            } else if (MediaRecorder.isTypeSupported('video/webm')) {
+                recommended = 'video/webm';
+            } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+                recommended = 'video/webm;codecs=vp8';
+            }
+            
+            recommendedDiv.innerHTML = `
+                <h3>🎯 Recommended Format for Your Browser:</h3>
+                <strong>${recommended}</strong>
+                <p><small>This format will be used by the recording components.</small></p>
+            `;
+            
+            resultsDiv.appendChild(recommendedDiv);
+        }
+        
+        // Run test when page loads
+        if (typeof MediaRecorder !== 'undefined') {
+            testMediaRecorderFormats();
+        } else {
+            document.getElementById('results').innerHTML = '<div class="test-result not-supported">❌ MediaRecorder API not supported in this browser</div>';
+        }
+    </script>
+</body>
+</html>
