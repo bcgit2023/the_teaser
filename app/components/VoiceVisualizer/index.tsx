@@ -1,20 +1,27 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useSharedAudioAnalyser, cleanupSharedAudioAnalyser } from '@/lib/shared-audio-context'
 
 interface VoiceVisualizerProps {
+  isActive: boolean
   isPlaying: boolean
-  audioElement: HTMLAudioElement | null
+  audioRef?: React.RefObject<HTMLAudioElement>
+  audioElement?: HTMLAudioElement | null
 }
 
-export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisualizerProps) {
+export default function VoiceVisualizer({ 
+  isActive, 
+  isPlaying, 
+  audioRef, 
+  audioElement 
+}: VoiceVisualizerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  // sourceRef will be either a MediaElementAudioSourceNode or a MediaStreamAudioSourceNode
-  const sourceRef = useRef<AudioNode | null>(null)
   const animationFrameRef = useRef<number>(0)
   const dataArrayRef = useRef<Uint8Array | null>(null)
+  const subscriberIdRef = useRef<string>(`visualizer-${Math.random().toString(36).substr(2, 9)}`)
+
+  const isVisualizerActive = isActive && isPlaying
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -36,35 +43,17 @@ export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisual
       smoothing: 0.6,
       fft: 8,
       minDecibels: -70,
-      scale: 0.2,
-      glow: 10,
+      scale: 0.15,
+      glow: 8,
       color1: [203, 36, 128],
       color2: [41, 200, 192],
       color3: [24, 137, 218],
       fillOpacity: 0.6,
       lineWidth: 1,
       blend: 'screen',
-      shift: 50,
-      width: 60,
-      amp: 1
-    }
-
-    // Main visualization loop
-    const visualize = () => {
-      if (!analyserRef.current || !ctx || !dataArrayRef.current) return
-
-      analyserRef.current.getByteFrequencyData(dataArrayRef.current)
-      const WIDTH = canvas.width
-      const HEIGHT = canvas.height
-
-      ctx.clearRect(0, 0, WIDTH, HEIGHT)
-      drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 0)
-      drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 1)
-      drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 2)
-
-      if (isPlaying) {
-        animationFrameRef.current = requestAnimationFrame(visualize)
-      }
+      shift: 35,
+      width: 40,
+      amp: 0.8
     }
 
     // Draw a wave path for a given channel (0, 1, 2)
@@ -126,33 +115,47 @@ export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisual
       return (s / 3) * opts.amp
     }
 
-    if (isPlaying) {
-      // Create a new AudioContext (or use webkitAudioContext on older browsers)
-      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-      analyserRef.current = audioContextRef.current.createAnalyser()
-      analyserRef.current.smoothingTimeConstant = opts.smoothing
-      analyserRef.current.fftSize = Math.pow(2, opts.fft)
-      analyserRef.current.minDecibels = opts.minDecibels
-      analyserRef.current.maxDecibels = 0
+    let analyser: AnalyserNode | null = null
 
-      dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount)
+    if (isVisualizerActive) {
+      // Handle audio source from either audioRef or audioElement
+      const audioSource = audioRef?.current || audioElement
+      
+      if (audioSource) {
+        // Use shared audio context manager
+        analyser = useSharedAudioAnalyser(
+          audioSource,
+          subscriberIdRef.current,
+          {
+            fftSize: Math.pow(2, opts.fft),
+            smoothingTimeConstant: opts.smoothing,
+            minDecibels: opts.minDecibels,
+            maxDecibels: 0
+          }
+        )
 
-      if (audioElement) {
-        // AI speaking: capture audio from the provided HTMLAudioElement
-        try {
-          sourceRef.current = audioContextRef.current.createMediaElementSource(audioElement)
-          sourceRef.current.connect(analyserRef.current)
-          analyserRef.current.connect(audioContextRef.current.destination)
-        } catch (error) {
-          console.error('Error connecting audio element:', error)
+        if (analyser) {
+          dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount)
+          console.log('[VoiceVisualizer] Connected to shared audio analyser')
         }
       } else {
         // Microphone input: use getUserMedia
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
-            sourceRef.current = audioContextRef.current!.createMediaStreamSource(stream)
-            if (analyserRef.current) {
-              sourceRef.current.connect(analyserRef.current)
+            analyser = useSharedAudioAnalyser(
+              stream,
+              subscriberIdRef.current,
+              {
+                fftSize: Math.pow(2, opts.fft),
+                smoothingTimeConstant: opts.smoothing,
+                minDecibels: opts.minDecibels,
+                maxDecibels: 0
+              }
+            )
+
+            if (analyser) {
+              dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount)
+              console.log('[VoiceVisualizer] Connected to microphone via shared audio analyser')
             }
           })
           .catch((err) => {
@@ -160,7 +163,27 @@ export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisual
           })
       }
 
-      requestAnimationFrame(visualize)
+      // Start visualization loop
+      const visualizeWithAnalyser = () => {
+        if (!analyser || !dataArrayRef.current) return
+
+        analyser.getByteFrequencyData(dataArrayRef.current)
+        const WIDTH = canvas.width
+        const HEIGHT = canvas.height
+
+        ctx.clearRect(0, 0, WIDTH, HEIGHT)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 0)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 1)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 2)
+
+        if (isVisualizerActive) {
+          animationFrameRef.current = requestAnimationFrame(visualizeWithAnalyser)
+        }
+      }
+
+      if (analyser) {
+        requestAnimationFrame(visualizeWithAnalyser)
+      }
     }
 
     return () => {
@@ -168,17 +191,17 @@ export default function VoiceVisualizer({ isPlaying, audioElement }: VoiceVisual
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
-      if (sourceRef.current) {
-        sourceRef.current.disconnect()
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close()
+      
+      // Clean up shared audio analyser
+      const audioSource = audioRef?.current || audioElement
+      if (audioSource) {
+        cleanupSharedAudioAnalyser(audioSource, subscriberIdRef.current)
       }
     }
-  }, [isPlaying, audioElement])
+  }, [isActive, isPlaying, audioRef, audioElement])
 
   return (
-    <div className="relative w-full h-20">
+    <div className="relative w-full h-12">
       <canvas
         ref={canvasRef}
         className="w-full h-full rounded-lg"

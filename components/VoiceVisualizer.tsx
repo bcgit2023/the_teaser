@@ -1,29 +1,27 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { useSharedAudioAnalyser, cleanupSharedAudioAnalyser } from '@/lib/shared-audio-context'
 
-export interface VoiceVisualizerProps {
-  isActive?: boolean
-  isPlaying?: boolean
+interface VoiceVisualizerProps {
+  isActive: boolean
+  isPlaying: boolean
   audioRef?: React.RefObject<HTMLAudioElement>
   audioElement?: HTMLAudioElement | null
 }
 
 export default function VoiceVisualizer({ 
-  isActive = false, 
-  isPlaying = false, 
+  isActive, 
+  isPlaying, 
   audioRef, 
   audioElement 
 }: VoiceVisualizerProps) {
-  // For backward compatibility, use either isActive or isPlaying
-  const isVisualizerActive = isActive || isPlaying
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const audioContextRef = useRef<AudioContext | null>(null)
-  const analyserRef = useRef<AnalyserNode | null>(null)
-  // sourceRef will be either a MediaElementAudioSourceNode or a MediaStreamAudioSourceNode
-  const sourceRef = useRef<AudioNode | null>(null)
   const animationFrameRef = useRef<number>(0)
   const dataArrayRef = useRef<Uint8Array | null>(null)
+  const subscriberIdRef = useRef<string>(`visualizer-${Math.random().toString(36).substr(2, 9)}`)
+
+  const isVisualizerActive = isActive && isPlaying
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -60,9 +58,8 @@ export default function VoiceVisualizer({
 
     // Main visualization loop
     const visualize = () => {
-      if (!analyserRef.current || !ctx || !dataArrayRef.current) return
+      if (!dataArrayRef.current) return
 
-      analyserRef.current.getByteFrequencyData(dataArrayRef.current)
       const WIDTH = canvas.width
       const HEIGHT = canvas.height
 
@@ -135,72 +132,47 @@ export default function VoiceVisualizer({
       return (s / 3) * opts.amp
     }
 
+    let analyser: AnalyserNode | null = null
+
     if (isVisualizerActive) {
-      try {
-        // Create a new AudioContext (or use webkitAudioContext on older browsers)
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-        
-        // Check if AudioContext was created successfully
-        if (!audioContextRef.current) {
-          console.error('Failed to create AudioContext')
-          return
-        }
-        
-        analyserRef.current = audioContextRef.current.createAnalyser()
-        analyserRef.current.smoothingTimeConstant = opts.smoothing
-        analyserRef.current.fftSize = Math.pow(2, opts.fft)
-        analyserRef.current.minDecibels = opts.minDecibels
-        analyserRef.current.maxDecibels = 0
-
-        dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount)
-      } catch (error) {
-        console.error('Error creating AudioContext or analyser:', error)
-        return
-      }
-
       // Handle audio source from either audioRef or audioElement
       const audioSource = audioRef?.current || audioElement
       
       if (audioSource) {
-        // AI speaking: capture audio from the provided HTMLAudioElement
-        try {
-          // Check if AudioContext is still valid before creating MediaElementSource
-          if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-            console.warn('AudioContext is closed, cannot create MediaElementSource')
-            return
+        // Use shared audio context manager
+        analyser = useSharedAudioAnalyser(
+          audioSource,
+          subscriberIdRef.current,
+          {
+            fftSize: Math.pow(2, opts.fft),
+            smoothingTimeConstant: opts.smoothing,
+            minDecibels: opts.minDecibels,
+            maxDecibels: 0
           }
-          
-          sourceRef.current = audioContextRef.current.createMediaElementSource(audioSource)
-          if (analyserRef.current) {
-            sourceRef.current.connect(analyserRef.current)
-            analyserRef.current.connect(audioContextRef.current.destination)
-          }
-        } catch (error) {
-          // This error can happen if the audio element is already connected
-          // Just log it and continue
-          console.error('Error connecting audio element:', error)
+        )
+
+        if (analyser) {
+          dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount)
+          console.log('[VoiceVisualizer] Connected to shared audio analyser')
         }
       } else {
         // Microphone input: use getUserMedia
         navigator.mediaDevices.getUserMedia({ audio: true })
           .then((stream) => {
-            // Check if AudioContext is still valid before creating MediaStreamSource
-            if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
-              console.warn('AudioContext is closed, cannot create MediaStreamSource')
-              // Clean up the stream since we can't use it
-              stream.getTracks().forEach(track => track.stop())
-              return
-            }
-            
-            try {
-              sourceRef.current = audioContextRef.current.createMediaStreamSource(stream)
-              if (analyserRef.current) {
-                sourceRef.current.connect(analyserRef.current)
+            analyser = useSharedAudioAnalyser(
+              stream,
+              subscriberIdRef.current,
+              {
+                fftSize: Math.pow(2, opts.fft),
+                smoothingTimeConstant: opts.smoothing,
+                minDecibels: opts.minDecibels,
+                maxDecibels: 0
               }
-            } catch (error) {
-              console.error('Error creating MediaStreamSource:', error)
-              // Clean up the stream on error
-              stream.getTracks().forEach(track => track.stop())
+            )
+
+            if (analyser) {
+              dataArrayRef.current = new Uint8Array(analyser.frequencyBinCount)
+              console.log('[VoiceVisualizer] Connected to microphone via shared audio analyser')
             }
           })
           .catch((err) => {
@@ -208,7 +180,27 @@ export default function VoiceVisualizer({
           })
       }
 
-      requestAnimationFrame(visualize)
+      // Start visualization loop
+      const visualizeWithAnalyser = () => {
+        if (!analyser || !dataArrayRef.current) return
+
+        analyser.getByteFrequencyData(dataArrayRef.current)
+        const WIDTH = canvas.width
+        const HEIGHT = canvas.height
+
+        ctx.clearRect(0, 0, WIDTH, HEIGHT)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 0)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 1)
+        drawPath(ctx, opts, dataArrayRef.current, WIDTH, HEIGHT, 2)
+
+        if (isVisualizerActive) {
+          animationFrameRef.current = requestAnimationFrame(visualizeWithAnalyser)
+        }
+      }
+
+      if (analyser) {
+        requestAnimationFrame(visualizeWithAnalyser)
+      }
     }
 
     return () => {
@@ -216,19 +208,11 @@ export default function VoiceVisualizer({
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
-      if (sourceRef.current) {
-        try {
-          sourceRef.current.disconnect()
-        } catch (error) {
-          console.warn('Error disconnecting audio source:', error)
-        }
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        try {
-          audioContextRef.current.close()
-        } catch (error) {
-          console.warn('Error closing audio context:', error)
-        }
+      
+      // Clean up shared audio analyser
+      const audioSource = audioRef?.current || audioElement
+      if (audioSource) {
+        cleanupSharedAudioAnalyser(audioSource, subscriberIdRef.current)
       }
     }
   }, [isActive, isPlaying, audioRef, audioElement])
