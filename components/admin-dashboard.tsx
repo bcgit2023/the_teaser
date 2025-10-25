@@ -27,7 +27,8 @@ import {
   HelpCircle,
   Eye,
   CheckCircle,
-  XCircle
+  XCircle,
+  Volume2
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
@@ -43,6 +44,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { Separator } from '@/components/ui/separator'
+import { TTSConfigManager } from '@/lib/tts-config'
+import { testBrowserTTS } from '@/lib/browser-tts'
 
 // Types
 interface User {
@@ -182,6 +185,23 @@ export default function AdminDashboard() {
   const [isQuizDetailsOpen, setIsQuizDetailsOpen] = useState(false)
   const [quizDetailsData, setQuizDetailsData] = useState<QuizDetailsData | null>(null)
   const [quizDetailsLoading, setQuizDetailsLoading] = useState(false)
+
+  // TTS configuration state
+  const [ttsConfig, setTtsConfig] = useState({
+    provider: 'browser',
+    fallbackProvider: 'openai',
+    browserSettings: {
+      voice: 'default',
+      rate: 1,
+      pitch: 1
+    }
+  })
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [ttsStatus, setTtsStatus] = useState({
+    browser: 'available',
+    openai: 'warning',
+    elevenlabs: 'unknown'
+  })
 
   // Fetch users
   const fetchUsers = async () => {
@@ -472,6 +492,98 @@ export default function AdminDashboard() {
     }
   }
 
+  // TTS Configuration Functions
+  const loadTTSConfig = async () => {
+    try {
+      const config = TTSConfigManager.getConfig()
+      setTtsConfig({
+        provider: config.primaryProvider || 'browser',
+        fallbackProvider: config.fallbackProvider || 'openai',
+        browserSettings: {
+          voice: config.browserTTS.voice || 'default',
+          rate: config.browserTTS.rate || 1,
+          pitch: config.browserTTS.pitch || 1
+        }
+      })
+    } catch (error) {
+      console.error('Error loading TTS config:', error)
+    }
+  }
+
+  const saveTTSConfig = async (newConfig: any) => {
+    try {
+      TTSConfigManager.updateConfig({
+        primaryProvider: newConfig.provider,
+        fallbackProvider: newConfig.fallbackProvider,
+        browserTTS: {
+          voice: newConfig.browserSettings.voice,
+          rate: newConfig.browserSettings.rate,
+          pitch: newConfig.browserSettings.pitch,
+          volume: 1.0
+        }
+      })
+      setTtsConfig(newConfig)
+      toast.success('TTS settings saved successfully')
+    } catch (error) {
+      console.error('Error saving TTS config:', error)
+      toast.error('Failed to save TTS settings')
+    }
+  }
+
+  const loadAvailableVoices = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const voices = speechSynthesis.getVoices()
+      setAvailableVoices(voices)
+      
+      // If voices aren't loaded yet, wait for the event
+      if (voices.length === 0) {
+        speechSynthesis.addEventListener('voiceschanged', () => {
+          setAvailableVoices(speechSynthesis.getVoices())
+        })
+      }
+    }
+  }
+
+  const testTTSProvider = async (provider: string) => {
+    try {
+      if (provider === 'browser') {
+        testBrowserTTS() // This function returns void, just call it
+        setTtsStatus(prev => ({ ...prev, browser: 'available' }))
+        toast.success('Browser TTS test successful')
+      } else {
+        toast.info(`Testing ${provider} TTS...`)
+        // For now, just show a placeholder status
+        setTtsStatus(prev => ({ ...prev, [provider]: 'testing' }))
+      }
+    } catch (error) {
+      console.error(`Error testing ${provider} TTS:`, error)
+      setTtsStatus(prev => ({ ...prev, [provider]: 'error' }))
+      toast.error(`Failed to test ${provider} TTS`)
+    }
+  }
+
+  const testVoice = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance('This is a test of the selected voice settings.')
+      
+      // Apply current settings
+      if (ttsConfig.browserSettings.voice !== 'default') {
+        const selectedVoice = availableVoices.find(voice => voice.name === ttsConfig.browserSettings.voice)
+        if (selectedVoice) {
+          utterance.voice = selectedVoice
+        }
+      }
+      
+      utterance.rate = ttsConfig.browserSettings.rate
+      utterance.pitch = ttsConfig.browserSettings.pitch
+      
+      speechSynthesis.speak(utterance)
+      toast.success('Playing voice test')
+    } else {
+      toast.error('Speech synthesis not supported in this browser')
+    }
+  }
+
   // Filter users with safety checks
   const filteredUsers = useMemo(() => {
     if (!Array.isArray(users)) {
@@ -536,6 +648,10 @@ export default function AdminDashboard() {
     fetchUsers()
     fetchQuestions()
     fetchDashboardData()
+    
+    // Initialize TTS configuration
+    loadTTSConfig()
+    loadAvailableVoices()
     
     // Initialize theme from localStorage (client-side only)
     if (typeof window !== 'undefined') {
@@ -605,6 +721,13 @@ export default function AdminDashboard() {
               >
                 <PieChart className="h-4 w-4 mr-3" />
                 Analytics
+              </TabsTrigger>
+              <TabsTrigger 
+                value="tts-settings" 
+                className={`w-full justify-start px-6 py-3 text-left ${isDarkMode ? 'text-gray-300 hover:text-gray-100 hover:bg-gray-700' : 'text-gray-700 hover:text-gray-900 hover:bg-gray-100'} data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:border-r-2 data-[state=active]:border-blue-400`}
+              >
+                <Volume2 className="h-4 w-4 mr-3" />
+                TTS Settings
               </TabsTrigger>
             </TabsList>
           </nav>
@@ -1537,6 +1660,290 @@ export default function AdminDashboard() {
                       </div>
                     </CardContent>
                   </Card>
+                </TabsContent>
+
+                {/* TTS Settings Tab */}
+                <TabsContent value="tts-settings" className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* TTS Provider Selection */}
+                    <Card className={`${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                      <CardHeader>
+                        <CardTitle className={`${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>TTS Provider</CardTitle>
+                        <CardDescription className={`${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                          Select the text-to-speech service to use
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-3">
+                          <Label className={`${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Primary TTS Provider</Label>
+                          <Select 
+                            value={ttsConfig.provider} 
+                            onValueChange={(value) => {
+                              const newConfig = { ...ttsConfig, provider: value }
+                              saveTTSConfig(newConfig)
+                            }}
+                          >
+                            <SelectTrigger className={`${isDarkMode ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`}>
+                              <SelectValue placeholder="Select TTS provider" />
+                            </SelectTrigger>
+                            <SelectContent className={`${isDarkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-300'}`}>
+                              <SelectItem value="browser" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                Browser TTS (Recommended for Vercel)
+                              </SelectItem>
+                              <SelectItem value="openai" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                OpenAI TTS
+                              </SelectItem>
+                              <SelectItem value="elevenlabs" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                ElevenLabs TTS
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <Label className={`${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Fallback Provider</Label>
+                          <Select 
+                            value={ttsConfig.fallbackProvider} 
+                            onValueChange={(value) => {
+                              const newConfig = { ...ttsConfig, fallbackProvider: value }
+                              saveTTSConfig(newConfig)
+                            }}
+                          >
+                            <SelectTrigger className={`${isDarkMode ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`}>
+                              <SelectValue placeholder="Select fallback provider" />
+                            </SelectTrigger>
+                            <SelectContent className={`${isDarkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-300'}`}>
+                              <SelectItem value="openai" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                OpenAI TTS
+                              </SelectItem>
+                              <SelectItem value="elevenlabs" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                ElevenLabs TTS
+                              </SelectItem>
+                              <SelectItem value="none" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                No Fallback
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className={`p-4 rounded-lg ${isDarkMode ? 'bg-blue-900/20 border border-blue-600' : 'bg-blue-50 border border-blue-200'}`}>
+                          <div className="flex items-start gap-3">
+                            <HelpCircle className={`h-5 w-5 mt-0.5 ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`} />
+                            <div>
+                              <div className={`font-medium ${isDarkMode ? 'text-blue-400' : 'text-blue-600'}`}>Browser TTS Recommended</div>
+                              <div className={`text-sm ${isDarkMode ? 'text-slate-300' : 'text-slate-700'}`}>
+                                Browser TTS is recommended for Vercel deployments to avoid serverless function timeout issues.
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    {/* Browser TTS Settings */}
+                    <Card className={`${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                      <CardHeader>
+                        <CardTitle className={`${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>Browser TTS Settings</CardTitle>
+                        <CardDescription className={`${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                          Configure browser text-to-speech options
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-4">
+                        <div className="space-y-3">
+                          <Label className={`${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Voice</Label>
+                          <Select 
+                            value={ttsConfig.browserSettings.voice} 
+                            onValueChange={(value) => {
+                              const newConfig = { 
+                                ...ttsConfig, 
+                                browserSettings: { ...ttsConfig.browserSettings, voice: value }
+                              }
+                              saveTTSConfig(newConfig)
+                            }}
+                          >
+                            <SelectTrigger className={`${isDarkMode ? 'bg-slate-700 border-slate-600 text-slate-100' : 'bg-white border-slate-300 text-slate-900'}`}>
+                              <SelectValue placeholder="Select voice" />
+                            </SelectTrigger>
+                            <SelectContent className={`${isDarkMode ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-300'}`}>
+                              <SelectItem value="default" className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}>
+                                Default System Voice
+                              </SelectItem>
+                              {availableVoices.map((voice) => (
+                                <SelectItem 
+                                  key={voice.name} 
+                                  value={voice.name}
+                                  className={`${isDarkMode ? 'text-slate-100 focus:bg-slate-600' : 'text-slate-900 focus:bg-slate-100'}`}
+                                >
+                                  {voice.name} ({voice.lang})
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-3">
+                          <Label className={`${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Speech Rate</Label>
+                          <div className="flex items-center gap-4">
+                            <span className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>Slow</span>
+                            <input
+                              type="range"
+                              min="0.5"
+                              max="2"
+                              step="0.1"
+                              value={ttsConfig.browserSettings.rate}
+                              onChange={(e) => {
+                                const newConfig = { 
+                                  ...ttsConfig, 
+                                  browserSettings: { ...ttsConfig.browserSettings, rate: parseFloat(e.target.value) }
+                                }
+                                saveTTSConfig(newConfig)
+                              }}
+                              className="flex-1"
+                            />
+                            <span className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>Fast</span>
+                          </div>
+                          <div className={`text-center text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {ttsConfig.browserSettings.rate}x
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <Label className={`${isDarkMode ? 'text-slate-200' : 'text-slate-800'}`}>Pitch</Label>
+                          <div className="flex items-center gap-4">
+                            <span className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>Low</span>
+                            <input
+                              type="range"
+                              min="0"
+                              max="2"
+                              step="0.1"
+                              value={ttsConfig.browserSettings.pitch}
+                              onChange={(e) => {
+                                const newConfig = { 
+                                  ...ttsConfig, 
+                                  browserSettings: { ...ttsConfig.browserSettings, pitch: parseFloat(e.target.value) }
+                                }
+                                saveTTSConfig(newConfig)
+                              }}
+                              className="flex-1"
+                            />
+                            <span className={`text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>High</span>
+                          </div>
+                          <div className={`text-center text-sm ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                            {ttsConfig.browserSettings.pitch}
+                          </div>
+                        </div>
+
+                        <Button 
+                          variant="outline" 
+                          onClick={() => testVoice()}
+                          className={`w-full ${isDarkMode ? 'border-slate-600 text-slate-200 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+                        >
+                          Test Voice
+                        </Button>
+                      </CardContent>
+                    </Card>
+
+                    {/* TTS Status & Diagnostics */}
+                    <Card className={`${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} lg:col-span-2`}>
+                      <CardHeader>
+                        <CardTitle className={`${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>TTS Status & Diagnostics</CardTitle>
+                        <CardDescription className={`${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                          Current status and troubleshooting information
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                          <div className={`text-center p-6 border rounded-lg ${isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-slate-200 bg-slate-50'}`}>
+                            <div className={`text-3xl font-bold mb-2 ${
+                              ttsStatus.browser === 'available' ? 'text-green-400' : 
+                              ttsStatus.browser === 'error' ? 'text-red-400' : 'text-yellow-400'
+                            }`}>
+                              {ttsStatus.browser === 'available' ? '✓' : 
+                               ttsStatus.browser === 'error' ? '✗' : '⚠'}
+                            </div>
+                            <div className={`text-sm font-medium ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>Browser TTS</div>
+                            <div className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                              {ttsStatus.browser === 'available' ? 'Available' : 
+                               ttsStatus.browser === 'error' ? 'Not Available' : 'Testing...'}
+                            </div>
+                          </div>
+                          <div className={`text-center p-6 border rounded-lg ${isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-slate-200 bg-slate-50'}`}>
+                            <div className={`text-3xl font-bold mb-2 ${
+                              ttsStatus.openai === 'available' ? 'text-green-400' : 
+                              ttsStatus.openai === 'error' ? 'text-red-400' : 'text-yellow-400'
+                            }`}>
+                              {ttsStatus.openai === 'available' ? '✓' : 
+                               ttsStatus.openai === 'error' ? '✗' : '⚠'}
+                            </div>
+                            <div className={`text-sm font-medium ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>OpenAI TTS</div>
+                            <div className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                              {ttsStatus.openai === 'available' ? 'Available' : 
+                               ttsStatus.openai === 'error' ? 'Connection Issues' : 'Testing...'}
+                            </div>
+                          </div>
+                          <div className={`text-center p-6 border rounded-lg ${isDarkMode ? 'border-slate-600 bg-slate-700' : 'border-slate-200 bg-slate-50'}`}>
+                            <div className={`text-3xl font-bold mb-2 ${
+                              ttsStatus.elevenlabs === 'available' ? 'text-green-400' : 
+                              ttsStatus.elevenlabs === 'error' ? 'text-red-400' : 'text-yellow-400'
+                            }`}>
+                              {ttsStatus.elevenlabs === 'available' ? '✓' : 
+                               ttsStatus.elevenlabs === 'error' ? '✗' : '?'}
+                            </div>
+                            <div className={`text-sm font-medium ${isDarkMode ? 'text-slate-100' : 'text-slate-900'}`}>ElevenLabs TTS</div>
+                            <div className={`text-xs ${isDarkMode ? 'text-slate-400' : 'text-slate-600'}`}>
+                              {ttsStatus.elevenlabs === 'available' ? 'Available' : 
+                               ttsStatus.elevenlabs === 'error' ? 'Connection Issues' : 'Not tested'}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-6 space-y-4">
+                          <div className="flex gap-4">
+                            <Button 
+                              variant="outline" 
+                              onClick={async () => {
+                                await testTTSProvider('browser')
+                                await testTTSProvider('openai')
+                                await testTTSProvider('elevenlabs')
+                              }}
+                              className={`${isDarkMode ? 'border-slate-600 text-slate-200 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+                            >
+                              Test All Providers
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => {
+                                console.log('TTS Configuration:', ttsConfig)
+                                console.log('TTS Status:', ttsStatus)
+                                console.log('Available Voices:', availableVoices)
+                              }}
+                              className={`${isDarkMode ? 'border-slate-600 text-slate-200 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+                            >
+                              View Logs
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              onClick={() => {
+                                const defaultConfig = {
+                                  provider: 'browser',
+                                  fallbackProvider: 'openai',
+                                  browserSettings: {
+                                    voice: 'default',
+                                    rate: 1,
+                                    pitch: 1
+                                  }
+                                }
+                                saveTTSConfig(defaultConfig)
+                              }}
+                              className={`${isDarkMode ? 'border-slate-600 text-slate-200 hover:bg-slate-700' : 'border-slate-300 text-slate-700 hover:bg-slate-100'}`}
+                            >
+                              Reset Settings
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </div>
                 </TabsContent>
               </div>
             </div>

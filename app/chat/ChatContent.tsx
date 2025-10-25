@@ -14,6 +14,7 @@ import {
   cleanupHybridSpeechRecognition,
   isHybridSpeechRecognitionSupported
 } from '@/lib/speech-utils'
+import { speakText } from '@/lib/tts-utils'
 
 // Define types for context-aware functionality
 interface QuestionContext {
@@ -516,169 +517,54 @@ export default function ChatContent({ questionContext, enableContextAwareness = 
         audioElement.currentTime = 0;
       }
       
-      // Create a new audio element each time to avoid state issues
-      const audio = new Audio();
-      
       console.log('Generating speech for text:', text.substring(0, 100) + '...')
       
-      // Fetch the audio data
-      const audioResponse = await fetch('/api/text-to-speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      })
-
-      console.log('Text-to-Speech API Response Status:', audioResponse.status)
-      console.log('Text-to-Speech API Response Headers:', Object.fromEntries(audioResponse.headers))
-
-      if (!audioResponse.ok) {
-        const errorText = await audioResponse.text()
-        console.error('Text-to-Speech API Error:', audioResponse.status, audioResponse.statusText)
-        console.error('Error response body:', errorText)
-        throw new Error(`Failed to generate audio: ${audioResponse.status} ${audioResponse.statusText} - ${errorText}`)
-      }
-
-      const audioBlob = await audioResponse.blob()
-      console.log('Received audio blob, size:', audioBlob.size, 'bytes')
-      
-      if (audioBlob.size === 0) {
-        throw new Error('Received empty audio response')
-      }
-      
-      const audioUrl = URL.createObjectURL(audioBlob)
-      
-      // Set up the new audio element
-      audio.src = audioUrl;
-      
-      // Set up event handlers - use function references for easier cleanup
-      const handlePlay = () => {
-        console.log('Audio playback started');
-        setIsAiSpeaking(true);
-        if (isQuestionReading) {
-          setHighlightState(prev => ({ ...prev, isReading: true, progress: 0 }));
-          // Reset word index when starting
-          setCurrentWordIndex(-1);
-          currentWordIndexRef.current = -1;
+      // Use the new TTS routing system
+      await speakText(
+        text,
+        'nova', // voice
+        () => {
+          console.log('Audio playback started');
+          setIsAiSpeaking(true);
+          if (isQuestionReading) {
+            setHighlightState(prev => ({ ...prev, isReading: true, progress: 0 }));
+            // Reset word index when starting
+            setCurrentWordIndex(-1);
+            currentWordIndexRef.current = -1;
+          }
+        },
+        () => {
+          console.log('Audio playback ended');
+          setIsAiSpeaking(false);
+          setHasAudioFinished(true);
+          if (isQuestionReading) {
+            setHighlightState(prev => ({ ...prev, isReading: false }));
+            // Reset word index when done
+            setCurrentWordIndex(-1);
+          }
+        },
+        (error) => {
+          console.error('Audio playback error:', error);
+          setIsAiSpeaking(false);
+          if (isQuestionReading) {
+            setHighlightState(prev => ({ ...prev, isReading: false }));
+            // Reset word index on error
+            setCurrentWordIndex(-1);
+          }
+          toast({
+            description: 'Audio playback failed. Please try again.',
+            variant: "destructive"
+          });
         }
-      };
+      );
       
-      const handleEnded = () => {
-        console.log('Audio playback ended');
-        setIsAiSpeaking(false);
-        setHasAudioFinished(true);
-        URL.revokeObjectURL(audioUrl);
-        if (isQuestionReading) {
-          setHighlightState(prev => ({ ...prev, isReading: false }));
-          // Reset word index when done
-          setCurrentWordIndex(-1);
-        }
-        // Clean up audio resources
-        audio.onplay = null;
-        audio.onended = null;
-        audio.onerror = null;
-        audio.ontimeupdate = null;
-      };
-      
-      const handleError = (event: any) => {
-        console.error('Audio playback error:', event);
-        setIsAiSpeaking(false);
-        URL.revokeObjectURL(audioUrl);
-        if (isQuestionReading) {
-          setHighlightState(prev => ({ ...prev, isReading: false }));
-          // Reset word index on error
-          setCurrentWordIndex(-1);
-        }
-        // Clean up audio resources
-        audio.onplay = null;
-        audio.onended = null;
-        audio.onerror = null;
-        audio.ontimeupdate = null;
-        toast({
-          description: 'Audio playback failed. Please try again.',
-          variant: "destructive"
-        });
-      };
-
       // Update the question text ref with the current question
       questionTextRef.current = questionContext?.text || questionContext?.question_text || '';
       
-      const handleTimeUpdate = () => {
-        if (isQuestionReading) {
-          const progress = audio.currentTime / audio.duration;
-          
-          // Get the text from our ref to ensure we have the latest value
-          const questionText = questionTextRef.current;
-          
-          // Update highlight state
-          setHighlightState(prev => ({ ...prev, progress }));
-          
-          // Calculate which word should be highlighted based on progress
-          if (progress > 0 && questionText) {
-            // Split the text into words directly here instead of using state
-            const words = questionText.match(/\S+/g) || [];
-            const wordIndex = Math.min(Math.floor(progress * words.length), words.length - 1);
-            
-            console.log('Updating word index:', wordIndex, 'progress:', progress, 'words:', words.length);
-            
-            // Force a direct DOM update for the highlighted word
-            const wordElements = document.querySelectorAll('.question-word');
-            wordElements.forEach((el, idx) => {
-              if (idx === wordIndex) {
-                el.classList.add('bg-blue-200', 'text-blue-900');
-              } else {
-                el.classList.remove('bg-blue-200', 'text-blue-900');
-              }
-            });
-            
-            // Also update the state for React's rendering
-            setCurrentWordIndex(wordIndex);
-          }
-        }
-      };
+      // Note: Browser TTS doesn't provide audio element for time tracking
+      // Word highlighting during question reading is handled by the browser TTS callbacks
       
-      // Assign the event handlers
-      audio.onplay = handlePlay;
-      audio.onended = handleEnded;
-      audio.onerror = handleError;
-      audio.ontimeupdate = handleTimeUpdate;
-      
-      // Update the audio element state
-      setAudioElement(audio);
-      
-      // Update the ref for the visualizer if it exists
-      if (audioRef.current) {
-        audioRef.current = audio;
-      }
-      
-      // Play the audio
-      try {
-        await audio.play();
-        // Mark that user interaction has occurred if audio plays successfully
-        setHasUserInteracted(true);
-      } catch (playError) {
-        console.log('Audio play failed, likely due to auto-play restrictions:', playError);
-        
-        // Show permission prompt for AI responses
-        if (!hasUserInteracted) {
-          toast({
-            title: "Audio Permission Required",
-            description: "Please enable audio permissions in your browser and refresh the page to hear AI responses automatically.",
-            variant: "default",
-            duration: 6000,
-          });
-        }
-        
-        // Clean up resources
-        URL.revokeObjectURL(audioUrl);
-        audio.onplay = null;
-        audio.onended = null;
-        audio.onerror = null;
-        audio.ontimeupdate = null;
-        
-        throw playError;
-      }
-      
-      // Mark that user interaction has occurred (indirectly)
+      // Mark that user interaction has occurred
       setHasUserInteracted(true);
       
     } catch (error) {
