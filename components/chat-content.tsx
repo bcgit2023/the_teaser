@@ -6,7 +6,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Mic } from 'lucide-react'
 import VoiceVisualizer from '@/components/VoiceVisualizer'
 import ErrorMessage from '@/components/ui/error-message'
-import { playTextToSpeech } from '@/lib/tts-utils'
+import { playTextToSpeech, speakText } from '@/lib/tts-utils'
 import { startSpeechRecognition, stopSpeechRecognition, isSpeechRecognitionSupported } from '@/lib/speech-utils'
 import type { Question } from '@/lib/services/supabase-smart-question-service'
 
@@ -140,46 +140,39 @@ export default function ChatContent({ currentQuestion, previousAnswers }: ChatCo
     }
   }, [])
 
-  const handleAiSpeaking = async (audioUrl: string, message: Message): Promise<void> => {
+  const handleAiSpeaking = async (message: Message): Promise<void> => {
     return new Promise((resolve) => {
-      if (!audioRef.current) {
-        resolve()
-        return
-      }
-
-      // Stop any existing audio
-      audioRef.current.pause()
-      audioRef.current.currentTime = 0
-
-      audioRef.current.src = audioUrl
+      // Add message to chat immediately
+      setMessages(prev => [...prev, message])
       
-      audioRef.current.onplay = () => {
-        setIsAiSpeaking(true)
-        setIsPlaying(true)
-        setMessages(prev => [...prev, message])
-      }
-
-      audioRef.current.onended = () => {
-        setIsAiSpeaking(false)
-        setIsPlaying(false)
-        URL.revokeObjectURL(audioUrl)
-        resolve()
-      }
-      
-      audioRef.current.onerror = (e) => {
-        console.error('Audio playback error:', e)
-        setIsAiSpeaking(false)
-        setIsPlaying(false)
-        URL.revokeObjectURL(audioUrl)
-        resolve()
-      }
-
-      setTimeout(() => {
-        audioRef.current?.play().catch(error => {
-          console.error('Error playing audio:', error)
+      // Use browser TTS to speak the text
+      speakText(
+        message.content,
+        'nova', // voice
+        () => {
+          // onStart callback
+          setIsAiSpeaking(true)
+          setIsPlaying(true)
+        },
+        () => {
+          // onEnd callback
+          setIsAiSpeaking(false)
+          setIsPlaying(false)
           resolve()
-        })
-      }, 100)
+        },
+        (error) => {
+          // onError callback
+          console.error('Browser TTS error:', error)
+          setIsAiSpeaking(false)
+          setIsPlaying(false)
+          resolve()
+        }
+      ).catch(error => {
+        console.error('Error with browser TTS:', error)
+        setIsAiSpeaking(false)
+        setIsPlaying(false)
+        resolve()
+      })
     })
   }
 
@@ -231,24 +224,9 @@ export default function ChatContent({ currentQuestion, previousAnswers }: ChatCo
         return;
       }
 
-      const audioResponse = await fetch('/api/text-to-speech', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text: data.text,
-          voice: 'nova',
-          model: 'tts-1',
-          speed: 1.0
-        }),
-      });
-
-      if (!audioResponse.ok) throw new Error('Failed to get audio response');
-
-      const audioBlob = await audioResponse.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
+      // Create AI message and use browser TTS
       const aiMessage = createMessage('assistant', data.text);
-      await handleAiSpeaking(audioUrl, aiMessage);
+      await handleAiSpeaking(aiMessage);
       lastMessageRef.current = messageHash;
 
       if (data.progressToNext) {
